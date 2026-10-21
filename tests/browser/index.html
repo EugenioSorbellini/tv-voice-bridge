@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>TV Voice Bridge browser smoke test</title>
+<style>
+  body { max-width: 680px; margin: 40px auto; font: 16px system-ui; color: #172b3a; background: #f4f7fa; }
+  button { padding: 12px 18px; cursor: pointer; } tv-voice-card { display: block; margin: 24px 0; }
+  pre { white-space: pre-wrap; background: white; border-radius: 12px; padding: 20px; }
+  :root { --divider-color: #d5dde3; --primary-color: #007ea8; --primary-text-color: #172b3a; --secondary-text-color: #536775; --secondary-background-color: white; }
+</style>
+<h1>TV Voice Bridge</h1>
+<p>This local test uses a synthetic oscillator as microphone input and a fake TV transport. It never requests real microphone permission or contacts a TV.</p>
+<button id="run">Run real AudioWorklet test</button>
+<tv-voice-card id="card"></tv-voice-card>
+<pre id="result" role="status">Ready.</pre>
+<script type="module">
+import '/frontend/tv-voice-card.js';
+const card = document.querySelector('#card');
+const result = document.querySelector('#result');
+const run = document.querySelector('#run');
+card.setConfig({ type: 'custom:tv-voice-card' });
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+run.onclick = async () => {
+  run.disabled = true;
+  result.textContent = 'Running…';
+  let synth;
+  try {
+    synth = new AudioContext();
+    synth.resume();
+    const oscillator = synth.createOscillator();
+    oscillator.frequency.value = 440;
+    oscillator.start();
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
+      const media = synth.createMediaStreamDestination();
+      oscillator.connect(media);
+      return media.stream;
+    } });
+    let received = 0;
+    let ready = false;
+    let frames = 0;
+    let controls = 0;
+    let cancelled = false;
+    const session = { session_id: '0123456789abcdef0123456789abcdef', binary_handler_id: 3,
+      protocol_version: 2, sample_rate: 16000, chunk_bytes: 8192, max_seconds: 15 };
+    const hass = { locale: { language: 'it' },
+      connection: { addEventListener() {}, removeEventListener() {}, socket: {
+        readyState: 1, send(buffer) {
+          const bytes = new Uint8Array(buffer);
+          if (!ready || bytes[0] !== 3 || new DataView(buffer).getUint32(17, true) !== frames) throw new Error('Invalid binary ownership/order');
+          received += bytes.length - 21; frames++;
+        },
+      } },
+      async callWS(message) {
+        controls++;
+        if ('audio' in message) throw new Error('Audio leaked into JSON');
+        if (message.type.endsWith('/start')) { await sleep(800); ready = true; return session; }
+        if (message.type.endsWith('/cancel')) cancelled = true;
+        if (message.type.endsWith('/progress')) return { received_bytes: received };
+        return { forwarded_bytes: received };
+      },
+    };
+    card.hass = hass;
+    await card._start();
+    if (card._state !== 'recording' || ready) throw new Error('Capture did not start before TV readiness');
+    await sleep(250);
+    const sending = card._stop();
+    await sleep(30);
+    if (card._state !== 'sending' || ready) throw new Error('Release did not preserve pending handshake');
+    await sending;
+    if (!received || card._state !== 'idle' || !card._status.textContent.includes('Audio inviato')) throw new Error('Submission failed');
+    const messages = [
+      'PASS — real browser AudioWorklet capture, with synthetic input',
+      'PASS — capture begins before the TV handshake completes',
+      'PASS — release stops capture and preserves the pending connection',
+      `PASS — ${received} PCM bytes delivered in ${frames} authenticated binary frames`,
+      `PASS — ${controls} JSON control messages contain no audio`,
+      'PASS — Italian UI and complete microphone cleanup',
+    ];
+    card.hass = { ...hass, locale: { language: 'en' } };
+    if (card._button.getAttribute('aria-label') !== 'Speak to TV') throw new Error('Language switch failed');
+    messages.push('PASS — live language change to English');
+    if (customElements.get('tv-voice-card').stylingVersion !== 1) throw new Error('Missing styling interface');
+    // Exercise CSS parts across a real wrapper shadow boundary, then remove
+    // the wrapper during pending delivery to check nested lifecycle cleanup.
+    if (!customElements.get('voice-test-wrapper')) customElements.define('voice-test-wrapper', class extends HTMLElement {
+      constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this.shadowRoot.innerHTML = `<style>
+          :host { position: fixed; top: 10px; right: 10px; width: 220px; background: white; z-index: 1; }
+          tv-voice-card::part(button) { border-radius: 9px; }
+          tv-voice-card[data-state="recording"]::part(button) { background: rgb(198, 40, 50); }
+        </style>`;
+      }
+    });
+    const host = document.createElement('voice-test-wrapper');
+    const nested = document.createElement('tv-voice-card');
+    host.shadowRoot.append(nested);
+    nested.setConfig({ entity: 'remote.synthetic_tv' });
+    nested.hass = hass;
+    document.body.append(host);
+    try {
+      const button = nested.shadowRoot.querySelector('[part="button"]');
+      if (getComputedStyle(button).borderRadius !== '9px') throw new Error('Wrapper CSS parts did not apply');
+      received = frames = controls = 0; ready = false;
+      await nested._start();
+      if (nested.getAttribute('data-state') !== 'recording' ||
+          getComputedStyle(button).backgroundColor !== 'rgb(198, 40, 50)') throw new Error('Recording state styling failed');
+      await sleep(200);
+      const pending = nested._stop();
+      host.remove();
+      await pending;
+      if (!cancelled || frames || nested.getAttribute('data-state') !== 'idle' ||
+          nested._context || nested._media) throw new Error('Nested removal did not cancel pending delivery');
+      messages.push('PASS — public CSS parts and recording state style across a wrapper shadow boundary');
+      messages.push('PASS — removing the wrapper cancels nested capture and pending delivery');
+    } finally { host.remove(); }
+    result.textContent = messages.join('\n');
+    document.body.dataset.status = 'passed';
+  } catch (error) {
+    result.textContent = 'FAIL — ' + error.message;
+    document.body.dataset.status = 'failed';
+    await card._stop(true);
+  } finally {
+    await synth?.close();
+    run.disabled = false;
+  }
+};
+</script>
+</html>

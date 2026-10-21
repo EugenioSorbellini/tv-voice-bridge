@@ -1,0 +1,24 @@
+{
+  "domain": "tv_voice_bridge",
+  "name": "TV Voice Bridge",
+  "codeowners": [
+    "@EugenioSorbellini"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "androidtv_remote",
+    "frontend",
+    "http",
+    "lovelace",
+    "websocket_api"
+  ],
+  "documentation": "https://github.com/EugenioSorbellini/tv-voice-bridge",
+  "import_executor": true,
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/EugenioSorbellini/tv-voice-bridge/issues",
+  "loggers": [
+    "androidtvremote2"
+  ],
+  "version": "1.0.0"
+}

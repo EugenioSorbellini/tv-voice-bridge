@@ -1,0 +1,119 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "TV Voice Bridge",
+        "description": "Seleziona un telecomando Android TV già associato. La configurazione non attiva il microfono o l’assistente TV.",
+        "data": {
+          "remote_entity": "Telecomando Android TV"
+        }
+      },
+      "reconfigure": {
+        "title": "TV Voice Bridge",
+        "data": {
+          "remote_entity": "Telecomando Android TV"
+        }
+      }
+    },
+    "error": {
+      "invalid_target": "Seleziona un telecomando Android TV configurato.",
+      "pairing_required": "Associa prima la TV con l’integrazione Android TV Remote.",
+      "unsupported_version": "Questa versione di Home Assistant o della libreria non è supportata da TV Voice Bridge.",
+      "different_target": "Aggiungi una voce di integrazione separata per un’altra TV."
+    },
+    "abort": {
+      "already_configured": "Questa TV è già configurata.",
+      "reconfigure_successful": "Configurazione aggiornata.",
+      "unique_id_mismatch": "Aggiungi una voce di integrazione separata per un’altra TV."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "remote_entity": "Telecomando Android TV"
+        }
+      }
+    },
+    "error": {
+      "invalid_target": "Seleziona un telecomando Android TV configurato.",
+      "pairing_required": "Associa prima la TV con l’integrazione Android TV Remote.",
+      "unsupported_version": "Questa versione di Home Assistant o della libreria non è supportata da TV Voice Bridge.",
+      "different_target": "Aggiungi una voce di integrazione separata per un’altra TV."
+    }
+  },
+  "exceptions": {
+    "unauthorized": {
+      "message": "Non hai il permesso di controllare questa TV."
+    },
+    "busy": {
+      "message": "Il microfono di questa TV è già in uso."
+    },
+    "invalid_target": {
+      "message": "Seleziona un telecomando Android TV configurato."
+    },
+    "select_target": {
+      "message": "Seleziona una TV nella configurazione della scheda."
+    },
+    "invalid_request": {
+      "message": "Richiesta voce non valida. Riprova."
+    },
+    "invalid_audio": {
+      "message": "Il trasferimento audio è stato interrotto. Riprova."
+    },
+    "delivery_failed": {
+      "message": "Audio non ricevuto dalla TV. Riprova."
+    },
+    "session_ended": {
+      "message": "La sessione voce della TV è terminata. Riprova."
+    },
+    "session_timeout": {
+      "message": "Tempo di connessione alla TV scaduto. Riprova."
+    },
+    "recording_limit": {
+      "message": "È stato raggiunto il limite di registrazione di 15 secondi."
+    },
+    "unavailable": {
+      "message": "Impossibile collegare la voce. Controlla la TV e l’associazione Android TV Remote."
+    },
+    "voice_unsupported": {
+      "message": "Questa TV non dichiara il supporto voce."
+    },
+    "unsupported_version": {
+      "message": "Questa versione di Home Assistant o della libreria non è supportata da TV Voice Bridge."
+    },
+    "pairing_required": {
+      "message": "Associa prima la TV con l’integrazione Android TV Remote."
+    },
+    "different_target": {
+      "message": "Aggiungi una voce di integrazione separata per un’altra TV."
+    },
+    "secure_context": {
+      "message": "Apri Home Assistant in HTTPS in un browser con microfono."
+    },
+    "microphone_denied": {
+      "message": "Microfono non consentito: abilitalo nelle autorizzazioni del browser."
+    },
+    "microphone_missing": {
+      "message": "Nessun microfono disponibile su questo dispositivo."
+    },
+    "audio_blocked": {
+      "message": "Audio bloccato dal browser. Premi di nuovo Parla alla TV."
+    },
+    "browser_unsupported": {
+      "message": "Questo browser non supporta la registrazione tramite AudioWorklet."
+    },
+    "no_audio": {
+      "message": "Nessun audio dal microfono. Controlla il microfono e riprova."
+    },
+    "disconnected": {
+      "message": "Connessione interrotta. Riprova."
+    },
+    "unknown_command": {
+      "message": "Il servizio voce non è ancora disponibile. Ricarica dopo il riavvio di Home Assistant."
+    },
+    "capture_failed": {
+      "message": "Registrazione dal microfono non riuscita. Riprova."
+    }
+  }
+}

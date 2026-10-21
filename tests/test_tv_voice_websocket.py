@@ -1,0 +1,173 @@
+"""Actual HA WebSocket auth/schema/binary routing and privacy regression tests."""
+
+import asyncio
+import logging
+from unittest.mock import AsyncMock, Mock, patch
+
+from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.tv_voice_bridge.const import DOMAIN
+from custom_components.tv_voice_bridge.manager import BridgeManager
+from custom_components.tv_voice_bridge.websocket import async_register
+
+
+@pytest.fixture
+async def bridge(hass):
+    source = MockConfigEntry(
+        domain="androidtv_remote", data={"host": "tv.invalid"}, entry_id="source-tv"
+    )
+    source.add_to_hass(hass)
+    entity = er.async_get(hass).async_get_or_create(
+        "remote", "androidtv_remote", "tv-1", suggested_object_id="test_tv", config_entry=source
+    )
+    hass.states.async_set(entity.entity_id, "on", {"friendly_name": "Test TV"})
+    manager = BridgeManager(hass)
+    manager.targets["bridge-entry"] = (entity.entity_id, source.entry_id)
+    hass.data[DOMAIN] = manager
+    assert await async_setup_component(hass, "websocket_api", {})
+    async_register(hass)
+    remotes = []
+
+    def make_remote(**kwargs):
+        remote = Mock()
+        remote.is_voice_enabled = True
+        remote.async_connect = AsyncMock()
+        remote.start_voice = AsyncMock(return_value=Mock(send_chunk=Mock(return_value=True)))
+        remotes.append(remote)
+        return remote
+
+    with (
+        patch("custom_components.tv_voice_bridge.manager.AndroidTVRemote", side_effect=make_remote),
+        patch("custom_components.tv_voice_bridge.session.configure_voice_protocol"),
+        patch("custom_components.tv_voice_bridge.session.VOICE_READY_DELAY", 0),
+    ):
+        yield manager, entity.entity_id, remotes
+        await manager.unload()
+
+
+async def call(client, **message):
+    await client.send_json_auto_id(message)
+    return await client.receive_json()
+
+
+def frame(result, audio, sequence=0, token=None):
+    return (
+        bytes([result["binary_handler_id"]])
+        + bytes.fromhex(token or result["session_id"])
+        + sequence.to_bytes(4, "little")
+        + audio
+    )
+
+
+@pytest.mark.asyncio
+async def test_binary_delivery_and_no_audio_in_json_debug_logs(hass_ws_client, bridge, caplog):
+    caplog.set_level(logging.DEBUG)
+    manager, entity, remotes = bridge
+    client = await hass_ws_client()
+    response = await call(client, type=DOMAIN + "/start", request_id="1" * 32, remote_entity=entity)
+    assert response["success"]
+    session = response["result"]
+    pcm = b"\x23\x18" * 4096
+    await client.send_bytes(frame(session, pcm))
+    result = await call(
+        client, type=DOMAIN + "/progress", session_id=session["session_id"], sequence=1
+    )
+    assert result["result"]["received_bytes"] == len(pcm)
+    result = await call(
+        client, type=DOMAIN + "/stop", session_id=session["session_id"], expected_bytes=len(pcm)
+    )
+    assert result["result"]["forwarded_bytes"] == len(pcm)
+    remotes[0].start_voice.return_value.send_chunk.assert_called_once_with(pcm)
+    import base64
+
+    assert base64.b64encode(pcm).decode() not in caplog.text
+    assert str(pcm) not in caplog.text
+    assert "Received" in caplog.text  # Prove debug logging was enabled.
+    assert not manager.records
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_connection_isolation_busy_and_malformed_frames(hass_ws_client, bridge):
+    manager, entity, remotes = bridge
+    client = await hass_ws_client()
+    other = await hass_ws_client()
+    response = await call(client, type=DOMAIN + "/start", request_id="2" * 32)
+    session = response["result"]
+    assert not (
+        await call(other, type=DOMAIN + "/stop", session_id=session["session_id"], cancel=True)
+    )["success"]
+    assert (await call(other, type=DOMAIN + "/start", request_id="3" * 32))["error"][
+        "code"
+    ] == "busy"
+    await client.send_bytes(frame(session, bytes(100), sequence=3))
+    response = await call(
+        client, type=DOMAIN + "/progress", session_id=session["session_id"], sequence=1
+    )
+    assert not response["success"]
+    assert not manager.records
+    remotes[0].disconnect.assert_called()
+    await client.close()
+    await other.close()
+
+
+@pytest.mark.asyncio
+async def test_permission_checked_on_binary_and_stop(hass_ws_client, bridge):
+    manager, entity, _ = bridge
+    client = await hass_ws_client()
+    response = await call(client, type=DOMAIN + "/start", request_id="4" * 32)
+    session = response["result"]
+    with patch.object(BridgeManager, "allowed", return_value=False):
+        response = await call(
+            client, type=DOMAIN + "/stop", session_id=session["session_id"], expected_bytes=0
+        )
+    assert response["error"]["code"] == "unauthorized"
+    assert not manager.records
+    with patch.object(BridgeManager, "allowed", return_value=False):
+        response = await call(client, type=DOMAIN + "/start", request_id="5" * 32)
+        assert response["error"]["code"] == "unauthorized"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_pending_start_and_disconnect(hass_ws_client, bridge):
+    manager, entity, remotes = bridge
+    client = await hass_ws_client()
+    waiting = asyncio.Event()
+
+    async def connect():
+        waiting.set()
+        await asyncio.Future()
+
+    with patch("custom_components.tv_voice_bridge.manager.AndroidTVRemote") as factory:
+        remote = Mock(async_connect=connect)
+        factory.return_value = remote
+        await client.send_json_auto_id({"type": DOMAIN + "/start", "request_id": "6" * 32})
+        await waiting.wait()
+        await client.send_json_auto_id({"type": DOMAIN + "/cancel", "request_id": "6" * 32})
+        replies = [await client.receive_json(), await client.receive_json()]
+        assert any(reply.get("error", {}).get("code") == "cancelled" for reply in replies)
+        assert not manager.records
+        remote.disconnect.assert_called()
+    response = await call(client, type=DOMAIN + "/start", request_id="7" * 32)
+    assert response["success"]
+    await client.close()
+    await manager.hass.async_block_till_done()
+    assert not manager.records
+
+
+@pytest.mark.asyncio
+async def test_real_schemas_reject_invalid_tokens_and_json_audio(hass_ws_client, bridge):
+    client = await hass_ws_client()
+    response = await call(client, type=DOMAIN + "/start", request_id="bad")
+    assert response["error"]["code"] == "invalid_format"
+    response = await call(
+        client, type=DOMAIN + "/audio", session_id="0" * 32, audio="not-supported"
+    )
+    assert response["error"]["code"] == "unknown_command"
+    response = await call(client, type=DOMAIN + "/list")
+    assert response["result"][0]["name"] == "Test TV"
+    await client.close()

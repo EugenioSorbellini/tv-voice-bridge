@@ -1,0 +1,8 @@
+# Matches the declared minimum HA release and its official fixture plugin.
+homeassistant==2026.10.2
+home-assistant-frontend==20260930.4
+pytest-homeassistant-custom-component==0.13.373
+androidtvremote2==0.3.2
+ruff==0.17.1
+mypy==2.4.0
+pillow==12.3.0

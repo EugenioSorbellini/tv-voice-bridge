@@ -1,0 +1,21 @@
+"""Protocol limits and integration identifiers."""
+
+DOMAIN = "tv_voice_bridge"
+VERSION = "1.0.0"
+CONF_REMOTE_ENTITY = "remote_entity"
+CONF_ANDROIDTV_ENTRY_ID = "androidtv_entry_id"
+SAMPLE_RATE = 16000
+CHUNK_BYTES = 8192
+MAX_CHUNK_BYTES = 16384
+MAX_SECONDS = 15
+MAX_BYTES = SAMPLE_RATE * 2 * MAX_SECONDS
+CONNECT_TIMEOUT = 10.0
+VOICE_START_TIMEOUT = 5.0
+VOICE_READY_DELAY = 1.0
+UPLOAD_IDLE_SECONDS = 15.0
+FIRST_AUDIO_TIMEOUT = MAX_SECONDS + UPLOAD_IDLE_SECONDS
+SESSION_TIMEOUT = 90.0
+PROCESSING_GRACE_SECONDS = 15.0
+# HA's first byte routes the frame. Our header prevents replay and slot reuse.
+BINARY_HEADER_BYTES = 20  # 16-byte session token + uint32 little-endian sequence
+SUPPORTED_LIBRARY_VERSION = "0.3.2"

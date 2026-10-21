@@ -1,0 +1,119 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "TV Voice Bridge",
+        "description": "Select an already-paired Android TV Remote. Setup does not activate the microphone or TV assistant.",
+        "data": {
+          "remote_entity": "Android TV remote"
+        }
+      },
+      "reconfigure": {
+        "title": "TV Voice Bridge",
+        "data": {
+          "remote_entity": "Android TV remote"
+        }
+      }
+    },
+    "error": {
+      "invalid_target": "Select a configured Android TV remote.",
+      "pairing_required": "Pair the TV with the Android TV Remote integration first.",
+      "unsupported_version": "This Home Assistant/library version is not supported by TV Voice Bridge.",
+      "different_target": "Add a separate integration entry for a different TV."
+    },
+    "abort": {
+      "already_configured": "This TV is already configured.",
+      "reconfigure_successful": "Configuration updated.",
+      "unique_id_mismatch": "Add a separate integration entry for a different TV."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "remote_entity": "Android TV remote"
+        }
+      }
+    },
+    "error": {
+      "invalid_target": "Select a configured Android TV remote.",
+      "pairing_required": "Pair the TV with the Android TV Remote integration first.",
+      "unsupported_version": "This Home Assistant/library version is not supported by TV Voice Bridge.",
+      "different_target": "Add a separate integration entry for a different TV."
+    }
+  },
+  "exceptions": {
+    "unauthorized": {
+      "message": "You do not have permission to control this TV."
+    },
+    "busy": {
+      "message": "This TV microphone is already in use."
+    },
+    "invalid_target": {
+      "message": "Select a configured Android TV remote."
+    },
+    "select_target": {
+      "message": "Select a TV in the card configuration."
+    },
+    "invalid_request": {
+      "message": "Invalid voice request. Try again."
+    },
+    "invalid_audio": {
+      "message": "The audio transfer was interrupted. Try again."
+    },
+    "delivery_failed": {
+      "message": "Audio was not delivered to the TV. Try again."
+    },
+    "session_ended": {
+      "message": "The TV voice session has ended. Try again."
+    },
+    "session_timeout": {
+      "message": "The TV connection timed out. Try again."
+    },
+    "recording_limit": {
+      "message": "The 15-second recording limit was reached."
+    },
+    "unavailable": {
+      "message": "Cannot connect to TV voice. Check the TV and its Android TV Remote pairing."
+    },
+    "voice_unsupported": {
+      "message": "This TV does not advertise voice support."
+    },
+    "unsupported_version": {
+      "message": "This Home Assistant/library version is not supported by TV Voice Bridge."
+    },
+    "pairing_required": {
+      "message": "Pair the TV with the Android TV Remote integration first."
+    },
+    "different_target": {
+      "message": "Add a separate integration entry for a different TV."
+    },
+    "secure_context": {
+      "message": "Open Home Assistant using HTTPS in a browser with microphone support."
+    },
+    "microphone_denied": {
+      "message": "Microphone access was denied. Enable it in browser permissions."
+    },
+    "microphone_missing": {
+      "message": "No microphone is available on this device."
+    },
+    "audio_blocked": {
+      "message": "The browser blocked audio. Press Speak to TV again."
+    },
+    "browser_unsupported": {
+      "message": "This browser does not support AudioWorklet microphone capture."
+    },
+    "no_audio": {
+      "message": "No audio from the microphone. Check the microphone and try again."
+    },
+    "disconnected": {
+      "message": "Connection interrupted. Try again."
+    },
+    "unknown_command": {
+      "message": "TV Voice Bridge is not ready. Reload after restarting Home Assistant."
+    },
+    "capture_failed": {
+      "message": "Microphone capture failed. Try again."
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "tv-voice-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22"},
+  "scripts": {
+    "test": "node tests/test_tv_voice_audio.mjs && node tests/test_tv_voice_card.mjs && node tests/test_tv_voice_worklet.mjs",
+    "check": "node --check custom_components/tv_voice_bridge/frontend/tv-voice-card.js && node --check custom_components/tv_voice_bridge/frontend/pcm-worklet.js"
+  }
+}
