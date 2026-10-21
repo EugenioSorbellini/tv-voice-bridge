@@ -67,15 +67,19 @@ const token = '0123456789abcdef0123456789abcdef';
 const session = { session_id: token, binary_handler_id: 3, chunk_bytes: 8192, max_seconds: 15, sample_rate: 16000, protocol_version: 2 };
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const press = (card, name, event = {}) => card._button.listeners[name]({ preventDefault() {}, ...event });
-function create({ start = Promise.resolve(session), failProgress = false, language = 'it' } = {}) {
+function create({ start = Promise.resolve(session), failProgress = false, stall = '', language = 'it' } = {}) {
   const calls = [];
   const frames = [];
   const connection = { addEventListener() {}, removeEventListener() {}, socket: { readyState: 1, send: frame => frames.push(new Uint8Array(frame)) } };
   const card = new Card();
+  let cancelled = false;
   card.setConfig({ entity: 'remote.test_tv' });
   card.hass = { connection, locale: { language }, callWS: async message => {
     calls.push(message);
+    if (message.type.endsWith('/cancel')) cancelled = true;
+    if (stall && message.type.endsWith('/' + stall)) return new Promise(() => {});
     if (message.type.endsWith('/start')) return start;
+    if (message.type.endsWith('/stop') && cancelled) throw { code: 'session_ended' };
     if (message.type.endsWith('/progress')) {
       if (failProgress) throw { code: 'delivery_failed' };
       return { received_bytes: frames.reduce((sum, frame) => sum + frame.length - 21, 0) };
@@ -185,6 +189,81 @@ function create({ start = Promise.resolve(session), failProgress = false, langua
   await card._start(); processor.audio(); await card._stop();
   assert.match(card._status.textContent, /not delivered/);
   assert.equal(card._errorKey({ code: 'unknown_code', message: 'PRIVATE SERVER DETAIL' }), 'errors.unavailable');
+}
+
+// Each network phase times out, even while the socket still appears open.
+for (const phase of ['start', 'progress', 'stop']) {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  let ready;
+  const { card, calls, frames } = create({ language: 'en',
+    ...(phase === 'start' ? { start: new Promise(resolve => { ready = resolve; }) } : { stall: phase }),
+  });
+  await card._start(); await flush(); processor.audio();
+  const sending = card._stop(); await flush();
+  assert.equal(card._state, 'sending');
+  mock.timers.tick(phase === 'start' ? 20000 : 10000);
+  await flush(); await sending; await card._sending;
+  assert.equal(card._state, 'idle');
+  assert.equal(card._button.disabled, false);
+  assert.equal(card._bytes.length, 0);
+  assert.ok(media.stopped && context.closed);
+  assert.match(card._status.textContent, /timed out/);
+  assert.ok(calls.some(call => call.type.endsWith('/cancel')));
+  if (ready) {
+    ready(session); await flush();
+    assert.equal(card._token, null);
+    assert.equal(frames.length, 0, 'a late start cannot upload discarded audio');
+  }
+  mock.timers.reset();
+}
+
+// Cancellation finishes without replies, aborts old waits, and keeps its message.
+for (const message of ['', 'errors.capture_failed']) {
+  const { card, calls } = create({ language: 'en', stall: 'cancel' });
+  await card._start(); await flush(); processor.audio();
+  await card._stop(true, message, Boolean(message));
+  assert.equal(card._state, 'idle');
+  assert.equal(card._bytes.length, 0);
+  assert.equal(card._message, message || 'cancelled');
+  assert.equal(calls.filter(call => call.type.endsWith('/cancel')).length, 1);
+  assert.ok(!calls.some(call => call.type.endsWith('/stop')));
+}
+{
+  let acknowledge;
+  const { card, frames } = create({ language: 'en' });
+  const original = card._hass.callWS;
+  card._hass.callWS = message => {
+    if (message.type.endsWith('/progress')) return new Promise(resolve => { acknowledge = resolve; });
+    if (message.type.endsWith('/cancel')) return new Promise(() => {});
+    return original(message);
+  };
+  await card._start(); await flush(); processor.audio(16384);
+  const sending = card._stop(); await flush();
+  assert.equal(frames.length, 1);
+  await card._stop(true); await sending;
+  assert.equal(card._state, 'idle');
+  assert.equal(card._bytes.length, 0);
+  acknowledge({ received_bytes: 8192 }); await flush();
+  assert.equal(frames.length, 1, 'late acknowledgements cannot resume a cancelled upload');
+  assert.equal(card._message, 'cancelled');
+}
+
+// Replies within each request deadline cannot extend the absolute lifetime.
+{
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const { card } = create({ language: 'en' });
+  const original = card._hass.callWS;
+  card._hass.callWS = message => message.type.endsWith('/progress') ?
+    new Promise(resolve => setTimeout(() => resolve(original(message)), 9000)) : original(message);
+  await card._start(); await flush();
+  for (let i = 0; i < 59; i++) processor.audio();
+  const sending = card._stop(); await flush();
+  for (let i = 0; i < 10; i++) { mock.timers.tick(9000); await flush(); }
+  await sending; await card._sending;
+  assert.equal(card._state, 'idle');
+  assert.equal(card._bytes.length, 0);
+  assert.match(card._status.textContent, /timed out/);
+  mock.timers.reset();
 }
 
 // Physical holds, AT-generated clicks and optional toggle mode all work.

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Bound browser startup, upload and finalization waits, with a separate overall deadline.
+- Release local audio immediately on cancellation without waiting for server replies or overwriting the original feedback.
+- Preserve binary failure and timeout codes briefly after session cleanup, with bounded, connection-owned metadata and complete lifecycle cleanup.
+- Add regression coverage for stalled replies, cancellation races, late responses and terminal-error ownership, expiry and eviction.
+
 ## 1.0.0 — 2026-10-21
 
 Baseline release of the standalone microphone integration.

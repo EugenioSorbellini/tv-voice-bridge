@@ -1,13 +1,16 @@
 """Actual HA WebSocket auth/schema/binary routing and privacy regression tests."""
 
 import asyncio
+from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, Mock, patch
+import weakref
 
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.tv_voice_bridge.const import DOMAIN
 from custom_components.tv_voice_bridge.manager import BridgeManager
@@ -170,4 +173,92 @@ async def test_real_schemas_reject_invalid_tokens_and_json_audio(hass_ws_client,
     assert response["error"]["code"] == "unknown_command"
     response = await call(client, type=DOMAIN + "/list")
     assert response["result"][0]["name"] == "Test TV"
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code", ["invalid_audio", "delivery_failed", "recording_limit", "session_timeout"]
+)
+async def test_terminal_errors_survive_cleanup_and_remain_owned(hass_ws_client, bridge, code):
+    manager, _, remotes = bridge
+    client = await hass_ws_client()
+    other = await hass_ws_client()
+    response = await call(client, type=DOMAIN + "/start", request_id="8" * 32)
+    session = response["result"]
+    token = session["session_id"]
+    record = manager.records[token]
+    if code == "session_timeout":
+        record.session._expire()
+    else:
+        if code == "delivery_failed":
+            remotes[0].start_voice.return_value.send_chunk.return_value = False
+        if code == "recording_limit":
+            # Receive the entire valid recording before the overflowing frame.
+            for sequence in range(29):
+                await client.send_bytes(frame(session, bytes(16384), sequence))
+            await client.send_bytes(frame(session, bytes(4864), 29))
+            await client.send_bytes(frame(session, bytes(2), 30))
+        else:
+            await client.send_bytes(
+                frame(session, bytes(8192), 3 if code == "invalid_audio" else 0)
+            )
+    for message in (
+        {"type": DOMAIN + "/progress", "session_id": token, "sequence": 1},
+        {"type": DOMAIN + "/stop", "session_id": token, "expected_bytes": 8192},
+    ):
+        assert (await call(client, **message))["error"]["code"] == code
+        assert (await call(other, **message))["error"]["code"] == "session_ended"
+    assert not manager.records
+    assert not record.session.buffer
+    remotes[0].disconnect.assert_called()
+    assert token in manager.terminal_errors
+    assert not any(record.connection.binary_handlers)
+    with patch.object(BridgeManager, "allowed", return_value=False):
+        result = await call(client, type=DOMAIN + "/progress", session_id=token, sequence=1)
+        assert result["error"]["code"] == "unauthorized"
+    # Retained errors do not reserve the TV or keep the session alive.
+    reference = weakref.ref(record.session)
+    del record
+    await manager.hass.async_block_till_done()
+    import gc
+
+    gc.collect()
+    assert reference() is None
+    assert (await call(client, type=DOMAIN + "/start", request_id="9" * 32))["success"]
+    await client.close()
+    await manager.hass.async_block_till_done()
+    assert not manager.terminal_errors
+    await other.close()
+
+
+@pytest.mark.asyncio
+async def test_terminal_errors_expire_are_bounded_and_unload(hass_ws_client, bridge):
+    manager, _, _ = bridge
+    client = await hass_ws_client()
+    tokens = []
+    timers = []
+    with patch("custom_components.tv_voice_bridge.manager.MAX_TERMINAL_ERRORS", 2):
+        for number in range(3):
+            response = await call(client, type=DOMAIN + "/start", request_id=f"{number:032x}")
+            token = response["result"]["session_id"]
+            tokens.append(token)
+            manager.records[token].session._expire()
+            timers.append(manager.terminal_errors[token].timer)
+    assert len(manager.terminal_errors) == 2
+    assert tokens[0] not in manager.terminal_errors
+    assert timers[0].cancelled()
+    async_fire_time_changed(manager.hass, dt_util.utcnow() + timedelta(seconds=31))
+    await manager.hass.async_block_till_done()
+    assert not manager.terminal_errors
+    assert all(timer.cancelled() for timer in timers)
+    result = await call(client, type=DOMAIN + "/progress", session_id=tokens[-1], sequence=0)
+    assert result["error"]["code"] == "session_ended"
+    response = await call(client, type=DOMAIN + "/start", request_id="f" * 32)
+    token = response["result"]["session_id"]
+    manager.records[token].session._expire()
+    timer = manager.terminal_errors[token].timer
+    await manager.unload("bridge-entry")
+    assert not manager.terminal_errors
+    assert timer.cancelled()
     await client.close()

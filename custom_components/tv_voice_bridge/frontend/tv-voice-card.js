@@ -5,7 +5,26 @@ import './tv-voice-card-editor.js';
 const SAMPLE_RATE = 16000;
 const MAX_SECONDS = 15;
 const MAX_BYTES = SAMPLE_RATE * 2 * MAX_SECONDS;
+const START_TIMEOUT_MS = 20000;
+const REQUEST_TIMEOUT_MS = 10000;
+const SESSION_TIMEOUT_MS = 90000;
 const coded = (code) => Object.assign(new Error(code), { code });
+
+async function withDeadline(promise, timeout, signal) {
+  let timer;
+  let abort;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(coded('session_timeout')), timeout);
+      abort = () => reject(coded('cancelled'));
+      if (signal?.aborted) abort();
+      else signal?.addEventListener('abort', abort, { once: true });
+    })]);
+  } finally {
+    clearTimeout(timer);
+    if (abort) signal?.removeEventListener('abort', abort);
+  }
+}
 
 export class TVVoiceCard extends HTMLElement {
   constructor() {
@@ -159,6 +178,7 @@ export class TVVoiceCard extends HTMLElement {
     this._peak = 0;
     this._acceptCapture = true;
     this._captureStopped = false;
+    this._requests = new AbortController();
     try {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw coded('secure_context');
       const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -219,23 +239,24 @@ export class TVVoiceCard extends HTMLElement {
       const requestId = this._requestId;
       const entity = this._config.entity;
       this._requestSent = true;
-      this._sessionReady = hass.callWS({ type: 'tv_voice_bridge/start', request_id: requestId,
+      this._sessionTimer = setTimeout(() => this._stop(true, 'errors.session_timeout', true), SESSION_TIMEOUT_MS);
+      const ready = hass.callWS({ type: 'tv_voice_bridge/start', request_id: requestId,
         ...(entity ? { remote_entity: entity } : {}),
-      }).then(async session => {
+      }).then(session => {
         if (epoch !== this._epoch) {
-          await hass.callWS({ type: 'tv_voice_bridge/stop', session_id: session.session_id, cancel: true });
+          this._cancelRequest(hass, requestId);
           return null;
         }
         if (session.protocol_version !== 2 || session.sample_rate !== SAMPLE_RATE ||
             !Number.isInteger(session.binary_handler_id) || session.binary_handler_id < 1 ||
             !Number.isInteger(session.chunk_bytes) || session.chunk_bytes < 2 || session.chunk_bytes > 16384 ||
             !/^[0-9a-f]{32}$/.test(session.session_id)) {
-          await hass.callWS({ type: 'tv_voice_bridge/stop', session_id: session.session_id, cancel: true });
           throw coded('unsupported_version');
         }
         this._token = session.session_id;
         return session;
-      }).catch(error => {
+      });
+      this._sessionReady = withDeadline(ready, START_TIMEOUT_MS, this._requests.signal).catch(error => {
         if (epoch === this._epoch) this._stop(true, this._errorKey(error), true);
         return null;
       });
@@ -248,6 +269,12 @@ export class TVVoiceCard extends HTMLElement {
     const code = error?.name === 'NotAllowedError' ? 'microphone_denied' :
       error?.name === 'NotFoundError' ? 'microphone_missing' : error?.code;
     return this._t(`errors.${code}`) !== `errors.${code}` ? `errors.${code}` : 'errors.unavailable';
+  }
+
+  _cancelRequest(hass, requestId) {
+    // Cancellation is idempotent. Never wait for a reply to release local audio.
+    try { hass.callWS({ type: 'tv_voice_bridge/cancel', request_id: requestId }).catch(() => {}); }
+    catch { /* A disconnected client may reject synchronously. */ }
   }
 
   async _releaseMicrophone(cancel) {
@@ -292,7 +319,10 @@ export class TVVoiceCard extends HTMLElement {
     cancel ||= this._state === 'starting';
     // Keep the epoch during the final worklet flush. Cancellation invalidates
     // all pending startup, audio callbacks and delivery continuations instead.
-    if (cancel) ++this._epoch;
+    if (cancel) {
+      ++this._epoch;
+      this._requests?.abort();
+    }
     const epoch = this._epoch;
     const hass = this._hass;
     const requestId = this._requestId;
@@ -305,10 +335,11 @@ export class TVVoiceCard extends HTMLElement {
         // Cancel startup immediately, rather than opening Gemini after the card
         // was closed while waiting for a slow handshake.
         if (cancel && requestSent) {
-          hass.callWS({ type: 'tv_voice_bridge/cancel', request_id: requestId }).catch(() => {});
+          this._cancelRequest(hass, requestId);
         }
         await this._releaseMicrophone(cancel);
-        const session = cancel ? null : await this._sessionReady;
+        if (cancel) return;
+        const session = await this._sessionReady;
         if (epoch !== this._epoch) return;
         const token = this._token;
         if (token) {
@@ -331,23 +362,25 @@ export class TVVoiceCard extends HTMLElement {
               socket.send(frame.buffer);
               sequence++;
               // Ack only metadata, so JSON debug logs cannot contain speech.
-              const progress = await hass.callWS({ type: 'tv_voice_bridge/progress', session_id: token, sequence });
+              const progress = await withDeadline(hass.callWS({ type: 'tv_voice_bridge/progress', session_id: token, sequence }),
+                REQUEST_TIMEOUT_MS, this._requests.signal);
               if (progress.received_bytes !== offset + pcm.length) throw coded('delivery_failed');
             }
           }
           if (epoch !== this._epoch) return;
-          const result = await hass.callWS({ type: 'tv_voice_bridge/stop', session_id: token, cancel,
-            expected_bytes: this._capturedBytes });
+          const result = await withDeadline(hass.callWS({ type: 'tv_voice_bridge/stop', session_id: token, cancel,
+            expected_bytes: this._capturedBytes }), REQUEST_TIMEOUT_MS, this._requests.signal);
           if (!cancel && (result?.delivery_failed || result?.forwarded_bytes !== this._capturedBytes)) throw coded('delivery_failed');
         }
       } catch (failure) {
         message = this._errorKey(failure); error = true;
-        if (epoch === this._epoch && this._token) {
-          try { await hass.callWS({ type: 'tv_voice_bridge/stop', session_id: this._token, cancel: true }); }
-          catch { /* Disconnection also releases the connection-owned session. */ }
+        if (epoch === this._epoch && requestSent) {
+          this._cancelRequest(hass, requestId);
         }
       } finally {
         if (epoch === this._epoch) {
+          clearTimeout(this._sessionTimer);
+          this._requests?.abort();
           // Cleanup still runs if a suspended worklet never acknowledges stop.
           this._acceptCapture = false;
           this._source?.disconnect(); this._processor?.disconnect(); this._mute?.disconnect();

@@ -16,6 +16,8 @@ UPLOAD_IDLE_SECONDS = 15.0
 FIRST_AUDIO_TIMEOUT = MAX_SECONDS + UPLOAD_IDLE_SECONDS
 SESSION_TIMEOUT = 90.0
 PROCESSING_GRACE_SECONDS = 15.0
+TERMINAL_ERROR_SECONDS = 30.0
+MAX_TERMINAL_ERRORS = 128
 # HA's first byte routes the frame. Our header prevents replay and slot reuse.
 BINARY_HEADER_BYTES = 20  # 16-byte session token + uint32 little-endian sequence
 SUPPORTED_LIBRARY_VERSION = "0.3.2"
