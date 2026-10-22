@@ -105,8 +105,8 @@ def cancel(
         vol.Optional("expected_bytes"): vol.All(int, vol.Range(min=0, max=MAX_BYTES)),
     }
 )
-@callback
-def stop(
+@websocket_api.async_response
+async def stop(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, message: dict[str, Any]
 ) -> None:
     try:
@@ -114,7 +114,8 @@ def stop(
         if not message["cancel"] and message.get("expected_bytes") != record.session.total_bytes:
             record.session.close()
             raise VoiceError("delivery_failed")
-        connection.send_result(message["id"], record.session.close(flush=not message["cancel"]))
+        record.session.close(flush=not message["cancel"])
+        connection.send_result(message["id"], await record.session.wait_closed())
     except VoiceError as error:
         _error(connection, message, error.code)
 

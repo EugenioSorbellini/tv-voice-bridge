@@ -44,7 +44,10 @@ async def bridge(hass):
 
     with (
         patch("custom_components.tv_voice_bridge.manager.AndroidTVRemote", side_effect=make_remote),
-        patch("custom_components.tv_voice_bridge.session.configure_voice_protocol"),
+        patch(
+            "custom_components.tv_voice_bridge.session.configure_voice_protocol",
+            new=lambda *_: None,
+        ),
         patch("custom_components.tv_voice_bridge.session.VOICE_READY_DELAY", 0),
     ):
         yield manager, entity.entity_id, remotes
@@ -262,3 +265,61 @@ async def test_terminal_errors_expire_are_bounded_and_unload(hass_ws_client, bri
     assert not manager.terminal_errors
     assert timer.cancelled()
     await client.close()
+
+
+@pytest.mark.parametrize("close_error", [None, ConnectionResetError()])
+async def test_stop_waits_for_transport_and_reserves_tv_until_closed(
+    hass_ws_client, bridge, close_error
+):
+    manager, _, remotes = bridge
+    client = await hass_ws_client()
+    other = await hass_ws_client()
+    response = await call(client, type=DOMAIN + "/start", request_id="a" * 32)
+    token = response["result"]["session_id"]
+    completed = manager.hass.loop.create_future()
+    closing = asyncio.Event()
+    remote = remotes[0]
+    remote._remote_message_protocol = Mock(on_con_lost=completed, transport=Mock())
+
+    def disconnect():
+        remote._remote_message_protocol = None
+        closing.set()
+
+    remote.disconnect.side_effect = disconnect
+    await client.send_json_auto_id(
+        {"type": DOMAIN + "/stop", "session_id": token, "expected_bytes": 0}
+    )
+    await closing.wait()
+    assert not manager.records
+    assert manager.sessions  # Graceful close is still owned, with no fixed grace timer.
+    busy = await call(other, type=DOMAIN + "/start", request_id="b" * 32)
+    assert busy["error"]["code"] == "busy"
+    completed.set_result(close_error)
+    result = await client.receive_json()
+    assert result["result"]["delivery_failed"] == (close_error is not None)
+    assert result["result"]["error"] == ("delivery_failed" if close_error else None)
+    assert not manager.sessions
+    assert (await call(other, type=DOMAIN + "/start", request_id="c" * 32))["success"]
+    await client.close()
+    await other.close()
+
+
+async def test_tv_voice_close_removes_binary_handler_and_returns_owned_error(
+    hass_ws_client, bridge
+):
+    manager, _, _ = bridge
+    client = await hass_ws_client()
+    other = await hass_ws_client()
+    response = await call(client, type=DOMAIN + "/start", request_id="d" * 32)
+    token = response["result"]["session_id"]
+    record = manager.records[token]
+    record.session.feed(bytes(100))
+    record.session._tv_closed()
+    assert not manager.records and not record.session.buffer
+    assert not any(record.connection.binary_handlers)
+    result = await call(client, type=DOMAIN + "/stop", session_id=token, expected_bytes=100)
+    assert result["error"]["code"] == "session_ended"
+    result = await call(other, type=DOMAIN + "/stop", session_id=token, expected_bytes=100)
+    assert result["error"]["code"] == "session_ended"
+    await client.close()
+    await other.close()

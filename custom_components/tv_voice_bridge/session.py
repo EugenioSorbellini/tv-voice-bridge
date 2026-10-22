@@ -13,14 +13,13 @@ from .const import (
     FIRST_AUDIO_TIMEOUT,
     MAX_BYTES,
     MAX_CHUNK_BYTES,
-    PROCESSING_GRACE_SECONDS,
     SESSION_TIMEOUT,
     UPLOAD_IDLE_SECONDS,
     VOICE_READY_DELAY,
     VOICE_START_TIMEOUT,
 )
 from .errors import VoiceError
-from .protocol import configure_voice_protocol
+from .protocol import ConnectionClose, configure_voice_protocol, disconnect
 
 if TYPE_CHECKING:
     from androidtvremote2 import AndroidTVRemote
@@ -28,7 +27,7 @@ if TYPE_CHECKING:
 
 
 class VoiceSession:
-    """Own every task and transport, including late startup and processing grace."""
+    """Own every task and transport, including late startup and graceful close."""
 
     def __init__(
         self,
@@ -51,7 +50,8 @@ class VoiceSession:
         self.error: str | None = None
         self.timer: asyncio.TimerHandle | None = None
         self._lifetime: asyncio.TimerHandle | None = None
-        self._disconnect_timer: asyncio.TimerHandle | None = None
+        self._close_tasks: set[asyncio.Task[None]] = set()
+        self._closing_connections: set[asyncio.Future[Exception | None]] = set()
         self._start_task: asyncio.Task[None] | None = None
         self._disconnected = False
 
@@ -80,12 +80,12 @@ class VoiceSession:
                 await self.remote.async_connect()
             if self.closed:
                 raise VoiceError("cancelled")
+            configure_voice_protocol(self.remote, self._tv_closed)
             await asyncio.sleep(VOICE_READY_DELAY)
             if self.closed:
                 raise VoiceError("cancelled")
             if not self.remote.is_voice_enabled:
                 raise VoiceError("voice_unsupported")
-            configure_voice_protocol(self.remote)
             stream = await self.remote.start_voice(timeout=VOICE_START_TIMEOUT)
             if self.closed:
                 stream.end()
@@ -105,6 +105,12 @@ class VoiceSession:
     def _expire(self) -> None:
         self.error = "session_timeout"
         self.close()
+
+    def _tv_closed(self) -> None:
+        """Stop accepting audio when the TV closes the matching voice session."""
+        if not self.closed:
+            self.error = "session_ended"
+            self.close()
 
     def feed(self, audio: bytes) -> None:
         """Accept PCM only, with a byte cap independent of network transfer time."""
@@ -134,7 +140,7 @@ class VoiceSession:
             raise
 
     def close(self, flush: bool = False) -> dict[str, Any]:
-        """End audio once. Keep successful submissions alive for processing."""
+        """End audio once, then immediately begin graceful transport shutdown."""
         if self.closed:
             return self.result()
         self.closed = True
@@ -164,34 +170,55 @@ class VoiceSession:
             try:
                 self.on_close()
             finally:
-                if flush and self.stream and not self.delivery_failed:
-                    self._disconnect_timer = self.loop.call_later(
-                        PROCESSING_GRACE_SECONDS, self._disconnect
-                    )
-                else:
-                    self._disconnect()
+                self._disconnect()
         return self.result()
 
     def _disconnect(self) -> None:
         # Always repeat transport cleanup: startup may complete after cancellation.
-        self.remote.disconnect()
-        if not self._disconnected and (self._start_task is None or self._start_task.done()):
+        closing = disconnect(self.remote)
+        if closing is not None and closing.completed not in self._closing_connections:
+            self._closing_connections.add(closing.completed)
+            task = self.loop.create_task(self._wait_for_disconnect(closing))
+            self._close_tasks.add(task)
+            task.add_done_callback(self._close_done)
+        self._notify_disconnected()
+
+    async def _wait_for_disconnect(self, closing: ConnectionClose) -> None:
+        if not await closing.wait() and not self.error:
+            self.delivery_failed = True
+            self.error = "delivery_failed"
+
+    def _close_done(self, task: asyncio.Task[None]) -> None:
+        self._close_tasks.discard(task)
+        self._notify_disconnected()
+
+    def _notify_disconnected(self) -> None:
+        if (
+            not self._disconnected
+            and not self._close_tasks
+            and (self._start_task is None or self._start_task.done())
+        ):
             self._disconnected = True
             self.on_disconnect()
 
     def _startup_done(self, _task: asyncio.Task[None]) -> None:
-        if self.closed and not self._disconnect_timer:
+        if self.closed:
             self._disconnect()
 
+    async def wait_closed(self) -> dict[str, Any]:
+        """Wait for transport completion; never claim recognition success."""
+        while self._close_tasks:
+            await asyncio.gather(*(asyncio.shield(task) for task in self._close_tasks))
+        return self.result()
+
     async def shutdown(self) -> None:
-        """Unload/shutdown waits for startup and bypasses processing grace."""
+        """Unload waits for late startup and bounded transport shutdown."""
         self.close()
-        if self._disconnect_timer:
-            self._disconnect_timer.cancel()
         task = self._start_task
         if task and task is not asyncio.current_task():
             await asyncio.gather(task, return_exceptions=True)
         self._disconnect()
+        await self.wait_closed()
 
     def result(self) -> dict[str, Any]:
         return {

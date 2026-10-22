@@ -45,7 +45,7 @@ After updating through HACS, restart Home Assistant and refresh open dashboards 
 - Closing/removing the card, hiding the page, Escape, pointer cancellation, or losing the HA connection cancels recording and pending delivery. Cancellation also cancels an in-progress TV handshake.
 - Startup, first audio, upload inactivity, and total session lifetime have separate bounded deadlines. The 15-second recording limit is not an upload deadline.
 - The card also times out missing server replies and releases local audio on cancellation without waiting for the network. Transfer failures retain their specific error code briefly after backend cleanup.
-- Submitted audio ends once; the dedicated TV transport remains alive briefly while the assistant processes it. Unloading an entry or stopping HA closes every transport and cancels pending tasks/timers.
+- Submitted audio ends once; the dedicated TV transport closes gracefully and the stop reply waits for shutdown, with a five-second failure deadline. A matching TV voice-close event stops further forwarding. Unloading an entry or stopping HA waits for bounded transport cleanup and cancels pending startup. Transport completion does not confirm speech recognition.
 
 Diagnostics contain only version information and session counts, with no audio, tokens, host addresses or pairing material. See [Protocol](docs/protocol.md) for the transport contract.
 

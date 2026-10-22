@@ -132,6 +132,9 @@ class BridgeManager:
             for record in self.records.values()
         ):
             raise VoiceError("busy")
+        if entry_id in self.sessions.values():
+            # A preceding upload may still be draining its transport.
+            raise VoiceError("busy")
         if any(
             record.connection is connection and record.request_id == request_id
             for record in self.records.values()

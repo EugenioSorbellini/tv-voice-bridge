@@ -12,7 +12,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.tv_voice_bridge import async_setup_entry, async_unload_entry
-from custom_components.tv_voice_bridge.const import DOMAIN
+from custom_components.tv_voice_bridge.const import DOMAIN, VERSION
 from custom_components.tv_voice_bridge.frontend import async_register_frontend
 from custom_components.tv_voice_bridge.manager import BridgeManager
 
@@ -103,11 +103,11 @@ async def test_frontend_registers_bundled_resource_and_preserves_other_resources
     hass.http = Mock(async_register_static_paths=AsyncMock())
     with patch("custom_components.tv_voice_bridge.frontend.frontend.add_extra_js_url") as register:
         url = await async_register_frontend(hass)
-    assert "/1.0.0/" in url
+    assert f"/{VERSION}/" in url
     resources.async_update_item.assert_awaited_once_with("ours", {"url": url, "res_type": "module"})
     register.assert_called_once_with(hass, url)
     registration = hass.http.async_register_static_paths.call_args.args[0][0]
-    assert registration.url_path == "/tv_voice_bridge/frontend/1.0.0"
+    assert registration.url_path == f"/tv_voice_bridge/frontend/{VERSION}"
     assert Path(registration.path, "tv-voice-card.js").is_file()
 
 
@@ -132,7 +132,7 @@ async def test_complete_setup_serves_assets_and_unloads(hass, paired_tv, hass_cl
     assert manager.frontend_url in hass.data[DATA_EXTRA_MODULE_URL].urls
     client = await hass_client()
     for name in ("tv-voice-card.js", "pcm-worklet.js", "pcm.mjs", "localize.mjs"):
-        response = await client.get("/tv_voice_bridge/frontend/1.0.0/" + name)
+        response = await client.get(f"/tv_voice_bridge/frontend/{VERSION}/" + name)
         assert response.status == 200
         assert "javascript" in response.content_type
     assert await hass.config_entries.async_unload(entries[0].entry_id)
@@ -187,7 +187,7 @@ async def test_diagnostics_omit_device_identity_and_audio(hass, paired_tv):
     manager.targets[entry.entry_id] = (entity.entity_id, source.entry_id)
     result = await async_get_config_entry_diagnostics(hass, entry)
     assert result == {
-        "integration_version": "1.0.0",
+        "integration_version": VERSION,
         "library_version": "0.3.2",
         "configured": True,
         "active_sessions": 0,

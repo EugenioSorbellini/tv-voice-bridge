@@ -38,7 +38,10 @@ class Remote:
 @pytest.fixture(autouse=True)
 def protocol_adapter():
     with (
-        patch("custom_components.tv_voice_bridge.session.configure_voice_protocol"),
+        patch(
+            "custom_components.tv_voice_bridge.session.configure_voice_protocol",
+            new=lambda *_: None,
+        ),
         patch("custom_components.tv_voice_bridge.session.VOICE_READY_DELAY", 0),
     ):
         yield
@@ -91,10 +94,10 @@ async def test_recording_and_upload_have_separate_deadlines():
     result = session.close(flush=True)
     assert result["forwarded_bytes"] == MAX_BYTES
     assert not result["delivery_failed"]
-    assert not remote.disconnects  # Processing grace is preserved.
+    assert remote.disconnects  # Graceful shutdown starts immediately.
     await session.shutdown()
     assert remote.disconnects
-    assert session._disconnect_timer.cancelled()
+    assert not session._close_tasks
 
 
 @pytest.mark.asyncio

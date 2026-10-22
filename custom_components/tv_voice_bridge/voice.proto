@@ -1,0 +1,32 @@
+// Voice subset verified against Google Remote Service 6.4 and 7.00.
+// Other fields remain owned by androidtvremote2. See docs/protocol-findings-2026-10-22.md.
+syntax = "proto2";
+package tv_voice_bridge;
+
+message ClientVoiceBegin {
+  optional int32 session_id = 1;
+  optional int32 sample_rate = 10 [default = 8000];
+  optional int32 channel_config = 11 [default = 16]; // Android CHANNEL_IN_MONO
+  optional int32 audio_format = 12 [default = 2]; // Android ENCODING_PCM_16BIT
+}
+
+message VoiceSessionId {
+  optional int32 session_id = 1;
+}
+
+message ServerVoiceBegin {
+  optional int32 session_id = 1;
+  repeated string package_name = 2;
+}
+
+// Field 31 has different types and meanings in the two directions.
+message ClientVoiceMessage {
+  optional ClientVoiceBegin begin = 30;
+  optional bytes audio = 31;
+  optional VoiceSessionId end = 32;
+}
+
+message ServerVoiceMessage {
+  optional ServerVoiceBegin begin = 30;
+  optional VoiceSessionId close = 31;
+}
