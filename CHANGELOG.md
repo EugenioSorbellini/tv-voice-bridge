@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — 2026-10-24
 
 - Stream audio to Home Assistant while recording, with up to four unacknowledged frames in flight, instead of buffering the whole recording and acknowledging each frame after release. Releasing the button now leaves only the final partial chunk and in-flight acknowledgements to wait for.
 - Hold received audio in the bridge until a non-cancelled stop, then forward it to the TV as a burst (the submission path validated in trials 35–36). Cancellation still guarantees that no speech reaches the TV.
@@ -9,6 +9,8 @@
 - Preallocate the recording buffer instead of copying it on every worklet message, and compute the server-side peak with `array` rather than per-sample `struct` unpacking.
 - Protocol lab: add `--startup poll` and record whether voice is enabled at connection. Live trials rejected polling and shorter delays as replacements for the one-second startup delay.
 - Consolidate the research and validation notes into `docs/voice-protocol-research.md`, and move per-release validation into this changelog.
+
+Validated against Home Assistant 2026.10.2 and androidtvremote2 0.3.2 with 54 Python tests (93% statement coverage), frontend tests, Ruff, mypy and tag/version checks, and GitHub CI including hassfest and HACS validation. On one TCL, the streaming build measured 163 ms from release to sent (v1.1.0: 910 ms, ending in `session_ended`); release before the TV was ready was sent once ready, and Escape mid-stream forwarded nothing. The later dead-code cleanup was not live-tested and does not change behaviour. Other devices remain unverified.
 
 ## 1.1.0 — 2026-10-22
 
