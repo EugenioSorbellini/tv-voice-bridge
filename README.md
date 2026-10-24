@@ -85,6 +85,8 @@ Release checks and hardware acceptance are summarized per version in the [Change
 
 CI also runs official hassfest and HACS validation. Release automation checks the tag against all version declarations and attaches a component-only ZIP to a published GitHub release. Publishing is a separate maintainer action; local tests do not certify compatibility with untested TVs or future HA releases.
 
+A weekly **Home Assistant compatibility** workflow (also runnable manually) tests the current stable and beta HA releases ahead of users. It runs the Python tests with the androidtvremote2 and frontend versions each release pins, and records whether the voice adapter supports that library. It also starts the official HA container with this integration, onboards it, saves a dashboard containing the card, and checks on five page loads that HA renders `tv-voice-card` rather than an error card. HA betas usually appear about a week before each monthly release.
+
 ## Removal
 
 Remove TV Voice Bridge entries under Devices & services, remove its dashboard cards, uninstall it through HACS, and restart HA. No pairing credentials or core Android TV Remote entries are removed.

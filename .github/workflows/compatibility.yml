@@ -1,0 +1,62 @@
+name: Home Assistant compatibility
+# Tests the next HA releases before users install them. Betas are published about a week
+# before each monthly release, so a weekly run gives notice of library and frontend changes.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [stable, beta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install Home Assistant ${{ matrix.channel }} and its component requirements
+        run: |
+          pip install ${{ matrix.channel == 'beta' && '--pre' || '' }} pytest-homeassistant-custom-component pytest-cov
+          pip install $(python tools/ha_requirements.py androidtv_remote frontend)
+      - name: Record versions
+        run: |
+          python - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          from importlib.metadata import version
+          from custom_components.tv_voice_bridge.const import SUPPORTED_LIBRARY_VERSION
+          library = version("androidtvremote2")
+          print(f"**{version('homeassistant')}**: androidtvremote2 {library}", end="")
+          print(" (supported)" if library == SUPPORTED_LIBRARY_VERSION else
+                f" — **not {SUPPORTED_LIBRARY_VERSION}: the voice adapter will refuse it**")
+          EOF
+      - run: pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [stable, beta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Start Home Assistant ${{ matrix.channel }} with this integration
+        run: |
+          mkdir -p ha-config/custom_components
+          cp -r custom_components/tv_voice_bridge ha-config/custom_components/
+          # Loads the integration's frontend without a TV; HA raises a harmless repair issue for the YAML key.
+          printf 'default_config:\ntv_voice_bridge:\n' > ha-config/configuration.yaml
+          docker run -d --name ha -p 8123:8123 -v "$PWD/ha-config:/config" \
+            ghcr.io/home-assistant/home-assistant:${{ matrix.channel }}
+      - run: npm install --no-save playwright@1.55.0 && npx playwright install --with-deps chromium
+      - name: Check the card registers on repeated dashboard loads
+        run: node tools/frontend_smoke.mjs http://localhost:8123
+      - name: Home Assistant log
+        if: failure()
+        run: docker logs ha 2>&1 | tail -100
