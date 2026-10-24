@@ -2,7 +2,7 @@
 
 Use the microphone on your phone, tablet, or browser to speak to an already-paired Android TV's voice assistant from a Home Assistant dashboard.
 
-Hold the microphone button to record and release it to send. Recording starts while the TV connects. If you release before the connection is ready, the recording waits in memory and is sent once connected. Capture stops at 15 seconds; upload time has separate limits. A toggle mode and assistive activation are also available.
+Hold the microphone button to record and release it to send. Recording starts while the TV connects. Once the connection is ready, audio uploads to Home Assistant while you speak, so little is left to send when you release. Home Assistant forwards nothing to the TV until you release. If you release before the connection is ready, the recording waits in memory and is sent once connected. Capture stops at 15 seconds; upload time has separate limits. A toggle mode and assistive activation are also available.
 
 ## Requirements and compatibility
 
@@ -42,7 +42,7 @@ After updating through HACS, restart Home Assistant and refresh open dashboards 
 - Audio remains in memory. It is transmitted as authenticated binary frames rather than base64 JSON, so normal HA WebSocket JSON debug logs do not contain speech payloads.
 - Binary frames are bound to the initiating connection and session token, sequenced, size checked, and authorized against the selected TV. Metadata-only acknowledgements provide upload backpressure.
 - Audio is forwarded to the TV's configured Google/Gemini or other assistant; the assistant's own processing and retention policies apply. This integration does not provide local speech recognition.
-- Closing/removing the card, hiding the page, Escape, pointer cancellation, or losing the HA connection cancels recording and pending delivery. Cancellation also cancels an in-progress TV handshake.
+- Closing/removing the card, hiding the page, Escape, pointer cancellation, or losing the HA connection cancels recording and pending delivery. Cancellation also cancels an in-progress TV handshake. Audio already uploaded to Home Assistant is discarded there; none of it reaches the TV.
 - Startup, first audio, upload inactivity, and total session lifetime have separate bounded deadlines. The 15-second recording limit is not an upload deadline.
 - The card also times out missing server replies and releases local audio on cancellation without waiting for the network. Transfer failures retain their specific error code briefly after backend cleanup.
 - Submitted audio ends once; the dedicated TV transport closes gracefully and the stop reply waits for shutdown, with a five-second failure deadline. A matching TV voice-close event stops further forwarding. Unloading an entry or stopping HA waits for bounded transport cleanup and cancels pending startup. Transport completion does not confirm speech recognition.

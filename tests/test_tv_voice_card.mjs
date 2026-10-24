@@ -229,23 +229,96 @@ for (const message of ['', 'errors.capture_failed']) {
   assert.ok(!calls.some(call => call.type.endsWith('/stop')));
 }
 {
-  let acknowledge;
+  const acknowledgements = [];
   const { card, frames } = create({ language: 'en' });
   const original = card._hass.callWS;
   card._hass.callWS = message => {
-    if (message.type.endsWith('/progress')) return new Promise(resolve => { acknowledge = resolve; });
+    if (message.type.endsWith('/progress')) {
+      return new Promise(resolve => acknowledgements.push(() => resolve({ received_bytes: message.sequence * 8192 })));
+    }
     if (message.type.endsWith('/cancel')) return new Promise(() => {});
     return original(message);
   };
-  await card._start(); await flush(); processor.audio(16384);
+  await card._start(); await flush();
+  for (let i = 0; i < 6; i++) processor.audio();
   const sending = card._stop(); await flush();
-  assert.equal(frames.length, 1);
+  assert.equal(frames.length, 4, 'outstanding frames are bounded by the upload window');
   await card._stop(true); await sending;
   assert.equal(card._state, 'idle');
   assert.equal(card._bytes.length, 0);
-  acknowledge({ received_bytes: 8192 }); await flush();
-  assert.equal(frames.length, 1, 'late acknowledgements cannot resume a cancelled upload');
+  acknowledgements.forEach(acknowledge => acknowledge()); await flush();
+  assert.equal(frames.length, 4, 'late acknowledgements cannot resume a cancelled upload');
   assert.equal(card._message, 'cancelled');
+}
+
+// Audio streams while recording continues, and the window refills as acks arrive.
+{
+  const acknowledgements = [];
+  const { card, calls, frames } = create({ language: 'en' });
+  const original = card._hass.callWS;
+  card._hass.callWS = message => {
+    if (message.type.endsWith('/progress')) {
+      return new Promise(resolve => acknowledgements.push(() => resolve({ received_bytes: message.sequence * 8192 })));
+    }
+    return original(message);
+  };
+  await card._start(); await flush();
+  processor.audio(4096); await flush();
+  assert.equal(frames.length, 0, 'partial chunks wait for more audio');
+  processor.audio(4096); await flush();
+  assert.equal(card._state, 'recording');
+  assert.equal(frames.length, 1, 'a full chunk is sent before release');
+  for (let i = 0; i < 5; i++) processor.audio();
+  await flush();
+  assert.equal(frames.length, 4);
+  acknowledgements.shift()(); await flush();
+  assert.equal(frames.length, 5);
+  assert.ok(!calls.some(call => call.type.endsWith('/stop')), 'nothing is submitted while recording');
+  const sending = card._stop();
+  for (let i = 0; i < 10; i++) { acknowledgements.splice(0).forEach(acknowledge => acknowledge()); await flush(); }
+  await sending;
+  assert.equal(frames.length, 6);
+  assert.deepEqual(frames.map(frame => new DataView(frame.buffer).getUint32(17, true)), [0, 1, 2, 3, 4, 5]);
+  assert.equal(frames.reduce((sum, frame) => sum + frame.length - 21, 0), 6 * 8192);
+  assert.equal(calls.at(-1).expected_bytes, 6 * 8192);
+  assert.match(card._status.textContent, /sent/i);
+}
+
+// A failed acknowledgement during recording stops capture and reports the error.
+{
+  const { card, calls } = create({ language: 'en', failProgress: true });
+  await card._start(); await flush();
+  processor.audio();
+  for (let i = 0; i < 5 && card._state === 'recording'; i++) await flush();
+  await card._sending;
+  assert.equal(card._state, 'idle');
+  assert.ok(media.stopped && context.closed);
+  assert.match(card._status.textContent, /not delivered/);
+  assert.ok(calls.some(call => call.type.endsWith('/cancel')));
+}
+
+// Silent recordings are discarded on the server even if frames were streamed.
+{
+  const { card, calls, frames } = create({ language: 'en' });
+  await card._start(); await flush();
+  processor.port.onmessage({ data: { type: 'audio', bytes: new Uint8Array(8192).buffer, peak: 0 } });
+  await flush();
+  await card._stop();
+  assert.equal(frames.length, 1);
+  assert.equal(calls.at(-1).type, 'tv_voice_bridge/stop');
+  assert.equal(calls.at(-1).cancel, true);
+}
+
+// Repeated hass updates with the same language do not re-render.
+{
+  const { card } = create({ language: 'en' });
+  let renders = 0;
+  const render = card._render.bind(card);
+  card._render = (...args) => { renders++; return render(...args); };
+  for (let i = 0; i < 5; i++) card.hass = { ...card._hass };
+  assert.equal(renders, 0);
+  card.hass = { ...card._hass, locale: { language: 'it' } };
+  assert.equal(renders, 1);
 }
 
 // Replies within each request deadline cannot extend the absolute lifetime.
@@ -253,8 +326,11 @@ for (const message of ['', 'errors.capture_failed']) {
   mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   const { card } = create({ language: 'en' });
   const original = card._hass.callWS;
-  card._hass.callWS = message => message.type.endsWith('/progress') ?
-    new Promise(resolve => setTimeout(() => resolve(original(message)), 9000)) : original(message);
+  // The server computes each reply when it processes the request; only delivery is slow.
+  card._hass.callWS = message => {
+    const reply = original(message);
+    return message.type.endsWith('/progress') ? new Promise(resolve => setTimeout(() => resolve(reply), 9000)) : reply;
+  };
   await card._start(); await flush();
   for (let i = 0; i < 59; i++) processor.audio();
   const sending = card._stop(); await flush();

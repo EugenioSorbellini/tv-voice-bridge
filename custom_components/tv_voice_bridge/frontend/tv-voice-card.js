@@ -8,6 +8,8 @@ const MAX_BYTES = SAMPLE_RATE * 2 * MAX_SECONDS;
 const START_TIMEOUT_MS = 20000;
 const REQUEST_TIMEOUT_MS = 10000;
 const SESSION_TIMEOUT_MS = 90000;
+// Unacknowledged binary frames allowed in flight (8 KiB each by default).
+const UPLOAD_WINDOW = 4;
 const coded = (code) => Object.assign(new Error(code), { code });
 
 async function withDeadline(promise, timeout, signal) {
@@ -111,15 +113,18 @@ export class TVVoiceCard extends HTMLElement {
     this._render();
   }
   set hass(hass) {
+    // HA assigns hass on every state change anywhere; only react to what the card uses.
     this._hass = hass;
-    this._language = hass.locale?.language || hass.language || 'en';
-    const metadata = window.customCards?.find(card => card.type === 'tv-voice-card');
-    if (metadata) metadata.description = this._t('description');
     if (this._connection !== hass.connection) {
       this._connection?.removeEventListener('disconnected', this._onDisconnect);
       this._connection = hass.connection;
       this._connection?.addEventListener('disconnected', this._onDisconnect);
     }
+    const language = hass.locale?.language || hass.language || 'en';
+    if (language === this._language) return;
+    this._language = language;
+    const metadata = window.customCards?.find(card => card.type === 'tv-voice-card');
+    if (metadata) metadata.description = this._t('description');
     this._render(this._message, this._error, this._values);
   }
   getCardSize() { return 1; }
@@ -173,11 +178,17 @@ export class TVVoiceCard extends HTMLElement {
     this._requestSent = false;
     this._token = null;
     this._sessionReady = null;
+    // Preallocated once per recording; _bytes is a view of the captured prefix.
+    this._buffer = new Uint8Array(MAX_BYTES);
     this._bytes = new Uint8Array();
     this._capturedBytes = 0;
     this._peak = 0;
     this._acceptCapture = true;
     this._captureStopped = false;
+    this._captureFinished = false;
+    this._upload = null;
+    this._uploadStopped = false;
+    this._wake = null;
     this._requests = new AbortController();
     try {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw coded('secure_context');
@@ -214,12 +225,12 @@ export class TVVoiceCard extends HTMLElement {
         }
         if (data.type !== 'audio' || !this._acceptCapture) return;
         const pcm = new Uint8Array(data.bytes).subarray(0, MAX_BYTES - this._capturedBytes);
-        const combined = new Uint8Array(this._bytes.length + pcm.length);
-        combined.set(this._bytes); combined.set(pcm, this._bytes.length);
-        this._bytes = combined;
+        this._buffer.set(pcm, this._capturedBytes);
         this._capturedBytes += pcm.length;
+        this._bytes = this._buffer.subarray(0, this._capturedBytes);
         this._peak = Math.max(this._peak, data.peak || 0);
         this._level.style.width = `${Math.min(100, (data.peak || 0) * 300)}%`;
+        this._wake?.();
       };
       this._processor.onprocessorerror = () => this._stop(true, 'errors.capture_failed', true);
       this._source = context.createMediaStreamSource(media);
@@ -254,6 +265,7 @@ export class TVVoiceCard extends HTMLElement {
           throw coded('unsupported_version');
         }
         this._token = session.session_id;
+        this._beginUpload(epoch, hass, session);
         return session;
       });
       this._sessionReady = withDeadline(ready, START_TIMEOUT_MS, this._requests.signal).catch(error => {
@@ -275,6 +287,70 @@ export class TVVoiceCard extends HTMLElement {
     // Cancellation is idempotent. Never wait for a reply to release local audio.
     try { hass.callWS({ type: 'tv_voice_bridge/cancel', request_id: requestId }).catch(() => {}); }
     catch { /* A disconnected client may reject synchronously. */ }
+  }
+
+  _beginUpload(epoch, hass, session) {
+    // Settles with the failure (or null) so it never becomes an unhandled rejection.
+    this._upload = this._uploadFrames(epoch, hass, session).then(() => null, failure => failure);
+    this._upload.then(failure => {
+      // After release, _stop awaits the upload and reports its failure instead.
+      if (failure && epoch === this._epoch && this._state === 'recording') {
+        this._stop(true, this._errorKey(failure), true);
+      }
+    });
+  }
+
+  // Streams captured PCM to Home Assistant while recording continues. The server
+  // holds it and forwards nothing to the TV until a non-cancelled stop, so
+  // cancellation still guarantees that no speech reaches the TV.
+  async _uploadFrames(epoch, hass, session) {
+    const connection = hass.connection;
+    const socket = connection.socket;
+    const signal = this._requests.signal;
+    const header = new Uint8Array(21);
+    header[0] = session.binary_handler_id;
+    header.set(Uint8Array.from(session.session_id.match(/../g), value => parseInt(value, 16)), 1);
+    const pending = [];
+    let sent = 0;
+    let sequence = 0;
+    let failure = null;
+    const active = () => epoch === this._epoch && !this._uploadStopped;
+    while (active()) {
+      if (failure) throw failure;
+      const available = this._capturedBytes - sent;
+      if (available < session.chunk_bytes && !(this._captureFinished && available > 0)) {
+        if (this._captureFinished) break;
+        await new Promise(resolve => { this._wake = resolve; });
+        continue;
+      }
+      if (pending.length >= UPLOAD_WINDOW) {
+        await pending.shift();
+        continue;
+      }
+      if (!socket || connection.socket !== socket || socket.readyState !== 1) throw coded('disconnected');
+      const pcm = this._buffer.subarray(sent, sent + Math.min(available, session.chunk_bytes));
+      const frame = new Uint8Array(21 + pcm.length);
+      frame.set(header);
+      new DataView(frame.buffer).setUint32(17, sequence, true);
+      frame.set(pcm, 21);
+      socket.send(frame.buffer);
+      sent += pcm.length;
+      sequence++;
+      // Ack only metadata, so JSON debug logs cannot contain speech.
+      const expected = sent;
+      const ack = withDeadline(hass.callWS({ type: 'tv_voice_bridge/progress', session_id: session.session_id, sequence }),
+        REQUEST_TIMEOUT_MS, signal).then(progress => {
+        if (progress?.received_bytes !== expected) throw coded('delivery_failed');
+      });
+      // Surface a failed ack immediately, even while waiting for more audio.
+      ack.catch(reason => {
+        failure ??= reason;
+        if (epoch === this._epoch) this._wake?.();
+      });
+      pending.push(ack);
+    }
+    if (!active()) return;
+    while (pending.length) await pending.shift();
   }
 
   async _releaseMicrophone(cancel) {
@@ -322,6 +398,7 @@ export class TVVoiceCard extends HTMLElement {
     if (cancel) {
       ++this._epoch;
       this._requests?.abort();
+      this._wake?.(); // Let an idle uploader observe the new epoch and exit.
     }
     const epoch = this._epoch;
     const hass = this._hass;
@@ -339,35 +416,21 @@ export class TVVoiceCard extends HTMLElement {
         }
         await this._releaseMicrophone(cancel);
         if (cancel) return;
-        const session = await this._sessionReady;
+        if (!this._capturedBytes || this._peak < .001) {
+          // Frames already streamed stay on the server; stop(cancel) discards them.
+          cancel = true; message = 'errors.no_audio'; error = true;
+          this._uploadStopped = true;
+        }
+        // The worklet's final flush has arrived; the uploader may send the tail.
+        this._captureFinished = true;
+        this._wake?.();
+        await this._sessionReady;
         if (epoch !== this._epoch) return;
         const token = this._token;
         if (token) {
-          if (!cancel && (!this._capturedBytes || this._peak < .001)) {
-            cancel = true; message = 'errors.no_audio'; error = true;
-          }
-          if (!cancel) {
-            const connection = hass.connection;
-            const socket = connection.socket;
-            let sequence = 0;
-            for (let offset = 0; offset < this._bytes.length; offset += session.chunk_bytes) {
-              if (epoch !== this._epoch) return;
-              if (!socket || connection.socket !== socket || socket.readyState !== 1) throw coded('disconnected');
-              const pcm = this._bytes.subarray(offset, offset + session.chunk_bytes);
-              const frame = new Uint8Array(21 + pcm.length);
-              frame[0] = session.binary_handler_id;
-              frame.set(Uint8Array.from(token.match(/../g), value => parseInt(value, 16)), 1);
-              new DataView(frame.buffer).setUint32(17, sequence, true);
-              frame.set(pcm, 21);
-              socket.send(frame.buffer);
-              sequence++;
-              // Ack only metadata, so JSON debug logs cannot contain speech.
-              const progress = await withDeadline(hass.callWS({ type: 'tv_voice_bridge/progress', session_id: token, sequence }),
-                REQUEST_TIMEOUT_MS, this._requests.signal);
-              if (progress.received_bytes !== offset + pcm.length) throw coded('delivery_failed');
-            }
-          }
+          const failure = await this._upload;
           if (epoch !== this._epoch) return;
+          if (failure) throw failure;
           const result = await withDeadline(hass.callWS({ type: 'tv_voice_bridge/stop', session_id: token, cancel,
             expected_bytes: this._capturedBytes }), REQUEST_TIMEOUT_MS, this._requests.signal);
           if (!cancel && (result?.delivery_failed || result?.forwarded_bytes !== this._capturedBytes)) throw coded('delivery_failed');
@@ -383,11 +446,14 @@ export class TVVoiceCard extends HTMLElement {
           this._requests?.abort();
           // Cleanup still runs if a suspended worklet never acknowledges stop.
           this._acceptCapture = false;
+          this._uploadStopped = true;
+          this._wake?.();
           this._source?.disconnect(); this._processor?.disconnect(); this._mute?.disconnect();
           this._context?.close().catch(() => {});
           this._context = null;
           this._token = null;
           this._bytes = new Uint8Array();
+          this._buffer = null;
           this._state = 'idle';
           this._render(message || (cancel ? 'cancelled' : 'sent'), error);
         }

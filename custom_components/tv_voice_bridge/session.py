@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from array import array
 import asyncio
 from collections.abc import Callable
-import struct
+import sys
 from typing import TYPE_CHECKING, Any
 
 from .const import (
@@ -113,7 +114,12 @@ class VoiceSession:
             self.close()
 
     def feed(self, audio: bytes) -> None:
-        """Accept PCM only, with a byte cap independent of network transfer time."""
+        """Accept PCM only, with a byte cap independent of network transfer time.
+
+        Audio is held until a non-cancelled close(flush=True). Browsers may upload
+        while still recording, so forwarding nothing earlier keeps cancellation
+        absolute: the TV never receives speech the user abandoned.
+        """
         if self.closed or self.stream is None:
             raise VoiceError("session_ended")
         if not audio or len(audio) > MAX_CHUNK_BYTES or len(audio) % 2:
@@ -124,20 +130,11 @@ class VoiceSession:
             raise VoiceError("recording_limit")
         self._arm_idle(UPLOAD_IDLE_SECONDS)
         self.total_bytes += len(audio)
-        self.peak = max(
-            self.peak, max(abs(sample[0]) for sample in struct.iter_unpack("<h", audio))
-        )
+        samples = array("h", audio)
+        if sys.byteorder == "big":
+            samples.byteswap()  # Wire format is PCM16LE.
+        self.peak = max(self.peak, max(samples), -min(samples))
         self.buffer.extend(audio)
-        try:
-            while len(self.buffer) >= CHUNK_BYTES:
-                if not self.stream.send_chunk(bytes(self.buffer[:CHUNK_BYTES])):
-                    raise VoiceError("delivery_failed")
-                self.forwarded_bytes += CHUNK_BYTES
-                del self.buffer[:CHUNK_BYTES]
-        except Exception:
-            self.error = "delivery_failed"
-            self.close()
-            raise
 
     def close(self, flush: bool = False) -> dict[str, Any]:
         """End audio once, then immediately begin graceful transport shutdown."""
@@ -156,10 +153,13 @@ class VoiceSession:
         try:
             if self.stream:
                 try:
-                    if flush and self.buffer:
-                        if not self.stream.send_chunk(bytes(self.buffer)):
-                            raise VoiceError("delivery_failed")
-                        self.forwarded_bytes += len(self.buffer)
+                    if flush:
+                        # Submission sends the held recording as a burst, as validated.
+                        for offset in range(0, len(self.buffer), CHUNK_BYTES):
+                            chunk = bytes(self.buffer[offset : offset + CHUNK_BYTES])
+                            if not self.stream.send_chunk(chunk):
+                                raise VoiceError("delivery_failed")
+                            self.forwarded_bytes += len(chunk)
                 finally:
                     self.stream.end()
         except Exception:

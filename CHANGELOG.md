@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Stream audio to Home Assistant while recording, with up to four unacknowledged frames in flight, instead of buffering the whole recording and acknowledging each frame after release. Releasing the button now leaves only the final partial chunk and in-flight acknowledgements to wait for.
+- Hold received audio in the bridge until a non-cancelled stop, then forward it to the TV as a burst (the submission path validated in trials 35–36). Cancellation still guarantees that no speech reaches the TV.
+- Surface upload failures, including a TV voice-close, while still recording instead of after release.
+- Stop re-rendering the card on every Home Assistant state update; only a language or connection change now does any work.
+- Preallocate the recording buffer instead of copying it on every worklet message, and compute the server-side peak with `array` rather than per-sample `struct` unpacking.
+
 ## 1.1.0 — 2026-10-22
 
 - Replace fixed post-upload processing grace with awaited graceful transport shutdown and a bounded abort deadline.

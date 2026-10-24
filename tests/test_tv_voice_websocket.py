@@ -195,8 +195,15 @@ async def test_terminal_errors_survive_cleanup_and_remain_owned(hass_ws_client, 
         record.session._expire()
     else:
         if code == "delivery_failed":
+            # Audio is held until submission, so forwarding fails at stop.
             remotes[0].start_voice.return_value.send_chunk.return_value = False
-        if code == "recording_limit":
+            await client.send_bytes(frame(session, bytes(8192)))
+            result = await call(
+                client, type=DOMAIN + "/stop", session_id=token, expected_bytes=8192
+            )
+            assert result["result"]["delivery_failed"]
+            assert result["result"]["error"] == "delivery_failed"
+        elif code == "recording_limit":
             # Receive the entire valid recording before the overflowing frame.
             for sequence in range(29):
                 await client.send_bytes(frame(session, bytes(16384), sequence))

@@ -91,8 +91,10 @@ async def test_recording_and_upload_have_separate_deadlines():
     for _ in range(57):
         session.feed(bytes(8192))
     session.feed(bytes(MAX_BYTES - session.total_bytes))
+    assert not remote.chunks, "audio is held until submission"
     result = session.close(flush=True)
     assert result["forwarded_bytes"] == MAX_BYTES
+    assert [len(chunk) for chunk in remote.chunks] == [8192] * 58 + [4864]
     assert not result["delivery_failed"]
     assert remote.disconnects  # Graceful shutdown starts immediately.
     await session.shutdown()
@@ -135,6 +137,22 @@ async def test_cancel_drops_tail_and_final_failure_is_reported():
     remote.stream.send_chunk.return_value = False
     remote.stream.send_chunk.side_effect = None
     assert session.close(flush=True)["delivery_failed"]
+    await session.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_streaming_forwards_nothing_and_peak_is_exact():
+    remote = Remote()
+    session = VoiceSession(remote, Mock())
+    await session.start()
+    for _ in range(10):
+        session.feed(bytes(8192))
+    session.feed(b"\x00\x80" + b"\xff\x7f")  # -32768, 32767 little-endian
+    assert session.peak == 32768
+    result = session.close()
+    assert not remote.chunks
+    assert result["forwarded_bytes"] == 0
+    assert result["received_bytes"] == 10 * 8192 + 4
     await session.shutdown()
 
 
