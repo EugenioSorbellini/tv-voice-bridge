@@ -7,6 +7,7 @@
 - Surface upload failures, including a TV voice-close, while still recording instead of after release.
 - Stop re-rendering the card on every Home Assistant state update; only a language or connection change now does any work.
 - Preallocate the recording buffer instead of copying it on every worklet message, and compute the server-side peak with `array` rather than per-sample `struct` unpacking.
+- Protocol lab: add `--startup poll` and record whether voice is enabled at connection. Live trials rejected polling and shorter delays as replacements for the one-second startup delay.
 
 ## 1.1.0 — 2026-10-22
 

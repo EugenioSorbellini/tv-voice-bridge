@@ -246,16 +246,23 @@ async def run_case(args: argparse.Namespace, case: Case, audio: bytes) -> dict[s
                 await remote.async_connect()
             report["device_info"] = remote.device_info
             report["connect_seconds"] = round(time.monotonic() - started, 3)
-            if not remote.is_voice_enabled:
-                raise RuntimeError("voice_unsupported")
+            report["voice_enabled_at_connect"] = bool(remote.is_voice_enabled)
             install_case(remote, case)
             observe_payload_shape(remote, report)
             observe_messages(remote, events, started)
             if wait_for_app:
                 async with asyncio.timeout(5):
                     await app_ready.wait()
+            elif getattr(args, "startup", "delay") == "poll":
+                # Rejected review proposal: poll the handshake flag, delay as ceiling.
+                deadline = time.monotonic() + args.ready_delay
+                while not remote.is_voice_enabled and time.monotonic() < deadline:  # noqa: ASYNC110
+                    await asyncio.sleep(0.05)
             else:
                 await asyncio.sleep(args.ready_delay)
+            if not remote.is_voice_enabled:
+                raise RuntimeError("voice_unsupported")
+            report["voice_request_seconds"] = round(time.monotonic() - started, 3)
             stream = await remote.start_voice(timeout=5)
             report["voice_ready_seconds"] = round(time.monotonic() - started, 3)
             await asyncio.sleep(getattr(args, "audio_delay", 0))
@@ -322,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cert", type=Path)
     parser.add_argument("--key", type=Path)
     parser.add_argument("--ready-delay", type=bounded_seconds, default=1.0)
-    parser.add_argument("--startup", choices=("delay", "ime"), default="delay")
+    parser.add_argument("--startup", choices=("delay", "ime", "poll"), default="delay")
     parser.add_argument("--processing-grace", type=bounded_seconds, default=15.0)
     parser.add_argument("--audio-delay", type=bounded_seconds, default=0.0)
     parser.add_argument("--pace", choices=("burst", "realtime"), default="burst")

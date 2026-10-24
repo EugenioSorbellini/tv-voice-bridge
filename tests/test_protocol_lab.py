@@ -10,7 +10,7 @@ import tempfile
 import time
 import types
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 import wave
 
 from androidtvremote2.remote import RemoteProtocol
@@ -174,6 +174,45 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
         remote.disconnect.assert_called_once()
         self.assertNotIn("PRIVATE", json.dumps(report))
         self.assertEqual(logging.getLogger("androidtvremote2").disabled, disabled)
+
+    async def test_poll_startup_requests_voice_once_flag_is_enabled(self):
+        args = types.SimpleNamespace(
+            host="PRIVATE_HOST",
+            cert=Path("PRIVATE_CERT"),
+            key=Path("PRIVATE_KEY"),
+            ready_delay=1,
+            audio_delay=0,
+            processing_grace=0,
+            startup="poll",
+            pace="burst",
+        )
+        stream = Mock(send_chunk=Mock(return_value=True))
+        remote = Mock(
+            start_voice=AsyncMock(return_value=stream),
+            device_info={"manufacturer": "Synthetic"},
+            is_voice_enabled=False,
+        )
+        remote._remote_message_protocol.transport.get_write_buffer_size.return_value = 0
+        remote.async_connect = AsyncMock()
+
+        async def poll(seconds):
+            if seconds:
+                remote.is_voice_enabled = True
+
+        with (
+            patch("androidtvremote2.AndroidTVRemote", return_value=remote),
+            patch.object(lab, "install_case"),
+            patch.object(lab, "observe_messages"),
+            patch.object(lab, "observe_payload_shape"),
+            patch.object(lab.asyncio, "sleep", side_effect=poll) as sleep,
+        ):
+            report = await lab.run_case(args, lab.CASES["current"], bytes(8192))
+        self.assertEqual(report["outcome"], "transport_completed")
+        self.assertFalse(report["voice_enabled_at_connect"])
+        self.assertEqual(sleep.await_args_list[0].args, (0.05,))
+        self.assertNotIn(call(1), sleep.await_args_list)
+        remote.start_voice.assert_awaited_once()
+        remote.disconnect.assert_called_once()
 
     async def test_experimental_startup_waits_for_callback_without_fixed_sleep(self):
         args = types.SimpleNamespace(
