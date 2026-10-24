@@ -101,7 +101,7 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   assert.equal(card._status.part, 'status feedback');
   assert.equal(card._button.capturedPointer, 7);
   processor.audio();
-  const captured = card._bytes.slice();
+  const captured = card._buffer.slice(0, card._capturedBytes);
   assert.equal(frames.length, 0);
   press(card, 'pointerup', { pointerId: 99 });
   assert.equal(card._state, 'recording');
@@ -180,7 +180,7 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   ready(session); await sending; await flush();
   assert.equal(card._state, 'idle');
   assert.equal(frames.length, 0);
-  assert.equal(card._bytes.length, 0);
+  assert.equal(card._buffer, null, 'recording released');
 }
 
 // Stable error codes are localized; raw server text is never displayed.
@@ -205,7 +205,7 @@ for (const phase of ['start', 'progress', 'stop']) {
   await flush(); await sending; await card._sending;
   assert.equal(card._state, 'idle');
   assert.equal(card._button.disabled, false);
-  assert.equal(card._bytes.length, 0);
+  assert.equal(card._buffer, null, 'recording released');
   assert.ok(media.stopped && context.closed);
   assert.match(card._status.textContent, /timed out/);
   assert.ok(calls.some(call => call.type.endsWith('/cancel')));
@@ -223,7 +223,7 @@ for (const message of ['', 'errors.capture_failed']) {
   await card._start(); await flush(); processor.audio();
   await card._stop(true, message, Boolean(message));
   assert.equal(card._state, 'idle');
-  assert.equal(card._bytes.length, 0);
+  assert.equal(card._buffer, null, 'recording released');
   assert.equal(card._message, message || 'cancelled');
   assert.equal(calls.filter(call => call.type.endsWith('/cancel')).length, 1);
   assert.ok(!calls.some(call => call.type.endsWith('/stop')));
@@ -245,7 +245,7 @@ for (const message of ['', 'errors.capture_failed']) {
   assert.equal(frames.length, 4, 'outstanding frames are bounded by the upload window');
   await card._stop(true); await sending;
   assert.equal(card._state, 'idle');
-  assert.equal(card._bytes.length, 0);
+  assert.equal(card._buffer, null, 'recording released');
   acknowledgements.forEach(acknowledge => acknowledge()); await flush();
   assert.equal(frames.length, 4, 'late acknowledgements cannot resume a cancelled upload');
   assert.equal(card._message, 'cancelled');
@@ -337,7 +337,7 @@ for (const message of ['', 'errors.capture_failed']) {
   for (let i = 0; i < 10; i++) { mock.timers.tick(9000); await flush(); }
   await sending; await card._sending;
   assert.equal(card._state, 'idle');
-  assert.equal(card._bytes.length, 0);
+  assert.equal(card._buffer, null, 'recording released');
   assert.match(card._status.textContent, /timed out/);
   mock.timers.reset();
 }

@@ -127,13 +127,7 @@ def list_targets(
 ) -> None:
     manager = _manager(hass)
     targets = []
-    for entity, source in manager.targets.values():
-        try:
-            from .target import resolve_target  # Avoid resolving unconfigured/removed TVs.
-
-            target = resolve_target(hass, entity, source)
-        except VoiceError:
-            continue
+    for _entry_id, target in manager.available():
         if manager.allowed(connection, target.entity_id):
             state = hass.states.get(target.entity_id)
             targets.append(

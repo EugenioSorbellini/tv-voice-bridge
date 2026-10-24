@@ -60,7 +60,8 @@ class BridgeManager:
     frontend_url: str | None = None
     shutting_down: bool = False
 
-    def target(self, entity_id: str | None) -> tuple[str, Target]:
+    def available(self) -> list[tuple[str, Target]]:
+        """Configured TVs that still resolve; removed or unpaired ones are skipped."""
         candidates = []
         for entry_id, (entity, source) in self.targets.items():
             try:
@@ -68,6 +69,10 @@ class BridgeManager:
             except VoiceError:
                 continue
             candidates.append((entry_id, target))
+        return candidates
+
+    def target(self, entity_id: str | None) -> tuple[str, Target]:
+        candidates = self.available()
         if entity_id is None:
             if len(candidates) != 1:
                 raise VoiceError("select_target")

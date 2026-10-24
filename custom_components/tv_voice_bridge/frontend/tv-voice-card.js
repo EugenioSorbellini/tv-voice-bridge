@@ -178,9 +178,8 @@ export class TVVoiceCard extends HTMLElement {
     this._requestSent = false;
     this._token = null;
     this._sessionReady = null;
-    // Preallocated once per recording; _bytes is a view of the captured prefix.
+    // Preallocated once per recording; _capturedBytes marks the filled prefix.
     this._buffer = new Uint8Array(MAX_BYTES);
-    this._bytes = new Uint8Array();
     this._capturedBytes = 0;
     this._peak = 0;
     this._acceptCapture = true;
@@ -227,7 +226,6 @@ export class TVVoiceCard extends HTMLElement {
         const pcm = new Uint8Array(data.bytes).subarray(0, MAX_BYTES - this._capturedBytes);
         this._buffer.set(pcm, this._capturedBytes);
         this._capturedBytes += pcm.length;
-        this._bytes = this._buffer.subarray(0, this._capturedBytes);
         this._peak = Math.max(this._peak, data.peak || 0);
         this._level.style.width = `${Math.min(100, (data.peak || 0) * 300)}%`;
         this._wake?.();
@@ -452,7 +450,6 @@ export class TVVoiceCard extends HTMLElement {
           this._context?.close().catch(() => {});
           this._context = null;
           this._token = null;
-          this._bytes = new Uint8Array();
           this._buffer = null;
           this._state = 'idle';
           this._render(message || (cancel ? 'cancelled' : 'sent'), error);
