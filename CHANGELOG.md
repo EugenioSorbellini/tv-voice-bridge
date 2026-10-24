@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2 — 2026-10-24
+
+- Keep loading if Home Assistant changes Lovelace internals. The migration of pre-1.0 dashboard resources is now optional: it is skipped, not fatal, when the resource collection is missing or changed, and `lovelace` is no longer a hard dependency.
+- Report moved pairing files clearly. If the core Android TV Remote integration is connected but its pairing files are not where the bridge expects them, setup and the config flow report `pairing_not_found` ("Update TV Voice Bridge") instead of asking to pair the TV again. A test compares the bridge's paths with core's own client factory.
+- Define the card after a 10-second fallback if Home Assistant's root element never appears, so a renamed root element cannot leave the card unregistered.
+- Add a weekly compatibility workflow against Home Assistant stable and beta: Python tests with each release's pinned library versions, and a browser check that a dashboard renders the card on repeated loads.
+
 ## 1.2.1 — 2026-10-24
 
 - Fix the microphone card not being found on Home Assistant 2026.10.3 (`Custom element doesn't exist: tv-voice-card`, or wrapper cards waiting forever). HA imports integration frontend modules in parallel with its app bundle, which can replace `window.customElements` with a scoped-registry polyfill that ignores elements defined before it. The card and its editor now define themselves after HA's root element is registered, so they land in the registry dashboards use.

@@ -1,7 +1,7 @@
 """Protocol limits and integration identifiers."""
 
 DOMAIN = "tv_voice_bridge"
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 CONF_REMOTE_ENTITY = "remote_entity"
 CONF_ANDROIDTV_ENTRY_ID = "androidtv_entry_id"
 SAMPLE_RATE = 16000
