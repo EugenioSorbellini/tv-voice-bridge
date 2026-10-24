@@ -1,5 +1,5 @@
 // Voice subset verified against Google Remote Service 6.4 and 7.00.
-// Other fields remain owned by androidtvremote2. See docs/protocol-findings-2026-10-22.md.
+// Other fields remain owned by androidtvremote2. See docs/voice-protocol-research.md.
 syntax = "proto2";
 package tv_voice_bridge;
 

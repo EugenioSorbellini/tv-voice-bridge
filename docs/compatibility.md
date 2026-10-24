@@ -8,7 +8,7 @@ Live tests on 2026-10-22 confirmed recognition with raw PCM at both 8 and 16 kHz
 
 This adapter accesses private protocol internals and is deliberately isolated and version-gated. If Home Assistant upgrades androidtvremote2, the integration reports `unsupported_version` rather than silently applying the patch to an untested implementation. Updating support requires reviewing upstream framing and callbacks, running the real VoiceStream framing and shutdown tests, and testing recognition on supported hardware. The remaining private hooks are the dedicated remote protocol reference and its send/receive methods; shutdown also captures its transport and `on_con_lost` future before upstream clears them. Prefer removing this adapter after an upstream fix is available; do not extend its version allowlist without evidence.
 
-The one-second pre-search delay remains a policy constant, not evidence that every Android TV needs the same timing. Controlled tests found that immediate voice triggering can fail after the power notification; waiting for the initial app/IME callback succeeded twice and failed once, so it is not a proven replacement. The bridge waits for the TV's voice-begin reply before audio.
+The one-second pre-search delay remains a policy constant, not evidence that every Android TV needs the same timing. On the tested TV, immediate voice requests intermittently get no voice-begin reply, and 0.25–0.5 s delays can lose the start of speech without any error. Polling `is_voice_enabled` does not help because it is already true at connection, and waiting for the initial app/IME callback also failed once in three. The bridge waits for the TV's voice-begin reply before audio.
 
 The v1.1.0 lifecycle implementation removes the fixed 15-second processing grace. Submission sends the final audio and client voice-end, immediately calls graceful transport close, and awaits `on_con_lost`. A five-second **failure deadline**, rather than a minimum wait, aborts a stalled close and reports delivery failure. The stop reply waits for shutdown, and the TV stays reserved while its connection is draining. Cancellation and unload also own this bounded cleanup, including connections that finish startup after cancellation. Successful shutdown is not recognition confirmation.
 
@@ -16,10 +16,5 @@ A matching server field-31 close stops further audio, discards any unsent partia
 
 Other device reports should include model and Remote Service version without speech content. Hardware recognition compatibility is verified only on the tested TCL installation.
 
-The [v1.1.0 investigation plan](protocol-investigation.md) separates payload format,
-audio configuration, rate and timing experiments. The [live findings](protocol-findings-2026-10-22.md)
-record the exact installation, fixture, observations and evidence limits. No
-release or installed integration change was made for these experiments.
-
-The v1.1.0 improvements and five follow-up live trials are recorded in
-[the lifecycle validation](protocol-lifecycle-validation-2026-10-22.md).
+The [voice protocol research](voice-protocol-research.md) records the tested
+installation, fixtures, trial results and evidence limits behind these choices.

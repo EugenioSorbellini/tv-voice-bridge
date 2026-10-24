@@ -3,7 +3,7 @@
 TLS, pairing, handshake and framing remain owned by androidtvremote2. Only this
 bridge's dedicated protocol instance is adapted. Generated, direction-specific
 voice schemas replace the upstream nested-audio model; see voice.proto and
-docs/protocol-findings-2026-10-22.md. No upstream API exposes server voice-close
+docs/voice-protocol-research.md. No upstream API exposes server voice-close
 or graceful-close completion yet, so private accesses are isolated here.
 """
 

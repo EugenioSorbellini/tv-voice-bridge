@@ -81,7 +81,7 @@ python tools/check_release.py
 
 The pinned development requirements reproduce the minimum supported Home Assistant release and its matching official test-fixture plugin. Tests use a real HA WebSocket server, schemas, config flows and entity registry while mocking TV transport. They cover cancellation races, permissions, binary payload privacy under debug logging, deadlines, the full buffer, real upstream wire framing, bundled frontend registration, translations, worklet limits and accessibility. Browser smoke tests are documented in `tests/browser/README.md`.
 
-See the [Validation record](docs/validation.md) for release checks, test coverage and hardware acceptance results.
+Release checks and hardware acceptance are summarized per version in the [Changelog](CHANGELOG.md). The [voice protocol research](docs/voice-protocol-research.md) records the live TV trials behind the wire adapter and its timing, and how to run the protocol lab.
 
 CI also runs official hassfest and HACS validation. Release automation checks the tag against all version declarations and attaches a component-only ZIP to a published GitHub release. Publishing is a separate maintainer action; local tests do not certify compatibility with untested TVs or future HA releases.
 
