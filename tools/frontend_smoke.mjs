@@ -67,6 +67,18 @@ try {
     if (location.origin === origin) localStorage.setItem('hassTokens', value);
   }, [base, JSON.stringify(tokens)]);
   const page = await context.newPage();
+  // Record when the card and HA's root are defined, relative to HA replacing the native registry.
+  await context.addInitScript(() => {
+    const native = window.customElements;
+    const define = native.define.bind(native);
+    window.__smokeDefinitions = [];
+    native.define = (name, ...rest) => {
+      if (/^(tv-voice-card|home-assistant)$/.test(name)) {
+        window.__smokeDefinitions.push(`${name}${window.customElements === native ? ' (native registry)' : ' (via polyfill)'}`);
+      }
+      return define(name, ...rest);
+    };
+  });
   const ready = () => page.waitForFunction(() => document.querySelector('home-assistant')?.hass,
     null, { timeout: 60000 });
   // HA may reload or reroute while starting; evaluate again in the settled page.
@@ -81,14 +93,19 @@ try {
       }
     }
   };
-  await page.goto(`${base}/lovelace`, { waitUntil: 'load' });
+  await page.goto(`${base}/`, { waitUntil: 'load' });
   // A real dashboard exercises HA's own card lookup, the path that fails when registration breaks.
-  await settled(() => document.querySelector('home-assistant').hass.callWS({
-    type: 'lovelace/config/save',
-    config: { views: [{ title: 'Smoke', cards: [{ type: 'custom:tv-voice-card' }] }] },
-  }));
+  // Use a dedicated one: the default Overview can redirect to other panels.
+  await settled(async () => {
+    const { hass } = document.querySelector('home-assistant');
+    await hass.callWS({ type: 'lovelace/dashboards/create', url_path: 'smoke-test', title: 'Smoke test', mode: 'storage' });
+    await hass.callWS({
+      type: 'lovelace/config/save', url_path: 'smoke-test',
+      config: { views: [{ title: 'Smoke', cards: [{ type: 'custom:tv-voice-card' }] }] },
+    });
+  });
   for (let load = 1; load <= loads; load++) {
-    await page.goto(`${base}/lovelace/0`, { waitUntil: 'load' });
+    await page.goto(`${base}/smoke-test/0`, { waitUntil: 'load' });
     const result = await settled(async () => {
       const find = (root, name) => {
         for (const element of root.querySelectorAll('*')) {
@@ -108,11 +125,31 @@ try {
         rendered: Boolean(card?.shadowRoot),
         styling: card?.constructor.stylingVersion,
         editor: Boolean(customElements.get('tv-voice-card-editor')),
+        // Whether HA replaced the native registry; the race only matters when it does.
+        polyfilled: customElements.constructor !== CustomElementRegistry
+          || !/\[native code\]/.test(Function.prototype.toString.call(customElements.get)),
         errorCard: Boolean(find(document, 'hui-error-card')),
       };
     });
-    assert.deepEqual(result, { rendered: true, styling: 1, editor: true, errorCard: false }, `Dashboard load ${load}`);
-    console.log(`Dashboard load ${load}/${loads}: HA rendered tv-voice-card (styling v1) without an error card.`);
+    const { polyfilled, ...checked } = result;
+    const expected = { rendered: true, styling: 1, editor: true, errorCard: false };
+    if (!(Object.entries(expected).every(([key, value]) => checked[key] === value))) {
+      await page.screenshot({ path: 'smoke-failure.png' });
+      console.log('Page state:', JSON.stringify(await page.evaluate(() => {
+        const names = new Set();
+        const walk = root => root.querySelectorAll('*').forEach(element => {
+          if (/^(ha-panel|hui-|tv-)/.test(element.localName)) names.add(element.localName);
+          if (element.shadowRoot) walk(element.shadowRoot);
+        });
+        walk(document);
+        return { path: location.pathname, launchScreen: Boolean(document.getElementById('ha-launch-screen')),
+          elements: [...names] };
+      })));
+    }
+    assert.deepEqual(checked, expected, `Dashboard load ${load}`);
+    console.log(`Dashboard load ${load}/${loads}: HA rendered tv-voice-card (styling v1) without an error card`
+      + ` (${polyfilled ? 'scoped-registry polyfill active' : 'native registry'};`
+      + ` defined: ${(await page.evaluate(() => window.__smokeDefinitions)).join(', ')}).`);
   }
 } finally {
   await browser.close();

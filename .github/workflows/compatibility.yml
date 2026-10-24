@@ -61,3 +61,9 @@ jobs:
       - name: Home Assistant log
         if: failure()
         run: docker logs ha 2>&1 | tail -100
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke-failure-${{ matrix.channel }}
+          path: smoke-failure.png
+          if-no-files-found: ignore
