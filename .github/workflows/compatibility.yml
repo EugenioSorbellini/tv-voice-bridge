@@ -36,7 +36,8 @@ jobs:
       - run: pytest
 
   frontend:
-    runs-on: ubuntu-latest
+    # Playwright 1.55 supports Ubuntu up to 24.04; ubuntu-latest is newer.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
