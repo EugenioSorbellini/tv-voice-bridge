@@ -1,3 +1,4 @@
+import { defineWhenReady } from './define.mjs';
 import { localize } from './localize.mjs';
 
 class TVVoiceCardEditor extends HTMLElement {
@@ -28,4 +29,4 @@ class TVVoiceCardEditor extends HTMLElement {
     this.shadowRoot.append(form);
   }
 }
-if (!customElements.get('tv-voice-card-editor')) customElements.define('tv-voice-card-editor', TVVoiceCardEditor);
+defineWhenReady('tv-voice-card-editor', TVVoiceCardEditor);

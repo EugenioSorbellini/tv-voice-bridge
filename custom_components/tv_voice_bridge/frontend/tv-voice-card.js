@@ -1,4 +1,5 @@
 import { baseStyles } from './styles.mjs';
+import { defineWhenReady } from './define.mjs';
 import { localize } from './localize.mjs';
 import './tv-voice-card-editor.js';
 
@@ -460,7 +461,7 @@ export class TVVoiceCard extends HTMLElement {
   }
 }
 
-if (!customElements.get('tv-voice-card')) customElements.define('tv-voice-card', TVVoiceCard);
+defineWhenReady('tv-voice-card', TVVoiceCard);
 window.customCards = window.customCards || [];
 if (!window.customCards.some(card => card.type === 'tv-voice-card')) {
   window.customCards.push({ type: 'tv-voice-card', name: 'TV Voice Bridge', preview: true,

@@ -18,10 +18,37 @@ class HTMLElement {
 globalThis.HTMLElement = HTMLElement;
 globalThis.document = { hidden: false, addEventListener() {}, removeEventListener() {} };
 globalThis.window = { isSecureContext: true };
-const elements = new Map();
-globalThis.customElements = { define(name, type) { elements.set(name, type); }, get(name) { return elements.get(name); } };
+const registry = () => {
+  const elements = new Map();
+  const waiting = new Map();
+  return {
+    define(name, type) {
+      if (elements.has(name)) throw new Error(`${name} already defined`);
+      elements.set(name, type);
+      waiting.get(name)?.forEach(resolve => resolve(type));
+    },
+    get(name) { return elements.get(name); },
+    whenDefined(name) {
+      return elements.has(name) ? Promise.resolve(elements.get(name))
+        : new Promise(resolve => waiting.set(name, [...(waiting.get(name) || []), resolve]));
+    },
+  };
+};
+// HA's app bundle may install a scoped-registry polyfill after this extra module has loaded.
+const native = registry();
+globalThis.customElements = native;
 const { TVVoiceCard: Card } = await import('../custom_components/tv_voice_bridge/frontend/tv-voice-card.js');
 const { localize, languages } = await import('../custom_components/tv_voice_bridge/frontend/localize.mjs');
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(native.get('tv-voice-card'), undefined, 'Nothing is defined before the HA app.');
+const polyfill = registry();
+globalThis.customElements = polyfill;
+native.define('home-assistant', class {});
+polyfill.define('home-assistant', class {});
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(polyfill.get('tv-voice-card'), Card, 'The card lands in the registry the app installed.');
+assert.ok(polyfill.get('tv-voice-card-editor'));
+assert.equal(native.get('tv-voice-card'), undefined);
 assert.equal(Card.stylingVersion, 1);
 {
   const card = new Card();

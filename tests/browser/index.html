@@ -15,6 +15,9 @@
 <pre id="result" role="status">Ready.</pre>
 <script type="module">
 import '/frontend/tv-voice-card.js';
+// The card defines itself once the HA app's root element exists.
+customElements.define('home-assistant', class extends HTMLElement {});
+await customElements.whenDefined('tv-voice-card');
 const card = document.querySelector('#card');
 const result = document.querySelector('#result');
 const run = document.querySelector('#run');
