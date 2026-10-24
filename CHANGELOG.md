@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 — 2026-10-24
+
+- Fix the microphone card not being found on Home Assistant 2026.10.3 (`Custom element doesn't exist: tv-voice-card`, or wrapper cards waiting forever). HA imports integration frontend modules in parallel with its app bundle, which can replace `window.customElements` with a scoped-registry polyfill that ignores elements defined before it. The card and its editor now define themselves after HA's root element is registered, so they land in the registry dashboards use.
+
+Validated with frontend tests that simulate the registry being replaced after the module loads; the previous eager definition fails them. Not yet verified on a live installation.
+
 ## 1.2.0 — 2026-10-24
 
 - Stream audio to Home Assistant while recording, with up to four unacknowledged frames in flight, instead of buffering the whole recording and acknowledging each frame after release. Releasing the button now leaves only the final partial chunk and in-flight acknowledgements to wait for.
