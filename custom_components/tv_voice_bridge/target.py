@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import STORAGE_DIR
 
@@ -52,6 +53,7 @@ def resolve_target(
     entry = hass.config_entries.async_get_entry(item.config_entry_id)
     if entry is None or not entry.data.get("host"):
         raise VoiceError("invalid_target")
+    # Must match core's androidtv_remote helpers.create_api; a test compares them.
     return Target(
         item.entity_id,
         entry.entry_id,
@@ -72,5 +74,9 @@ async def validate_target(
         return Path(target.certfile).is_file() and Path(target.keyfile).is_file()
 
     if not await hass.async_add_executor_job(paired):
+        source = hass.config_entries.async_get_entry(target.source_entry_id)
+        if source is not None and source.state is ConfigEntryState.LOADED:
+            # The core integration only loads once connected, so the pairing exists elsewhere.
+            raise VoiceError("pairing_not_found")
         raise VoiceError("pairing_required")
     return target

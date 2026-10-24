@@ -5,8 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.components.lovelace.const import LOVELACE_DATA
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -15,6 +16,7 @@ from custom_components.tv_voice_bridge import async_setup_entry, async_unload_en
 from custom_components.tv_voice_bridge.const import DOMAIN, VERSION
 from custom_components.tv_voice_bridge.frontend import async_register_frontend
 from custom_components.tv_voice_bridge.manager import BridgeManager
+from custom_components.tv_voice_bridge.target import resolve_target
 
 
 @pytest.fixture
@@ -58,9 +60,11 @@ async def test_real_flow_create_and_duplicate(hass, paired_tv):
 
 @pytest.mark.asyncio
 async def test_flow_reports_missing_pairing_without_contacting_tv(hass, paired_tv):
-    entity, _ = paired_tv
+    entity, source = paired_tv
     Path(hass.config.path(".storage", "androidtv_remote_key.pem")).unlink()
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    # Without pairing files, the core integration cannot connect and retries setup.
+    source.mock_state(hass, ConfigEntryState.SETUP_RETRY)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"remote_entity": entity.entity_id}
     )
@@ -69,6 +73,37 @@ async def test_flow_reports_missing_pairing_without_contacting_tv(hass, paired_t
         result["flow_id"], {"remote_entity": "remote.missing"}
     )
     assert result["errors"] == {"base": "invalid_target"}
+
+
+@pytest.mark.asyncio
+async def test_pairing_paths_match_core_integration(hass, paired_tv):
+    """Fails when core moves its pairing files, before users see pairing errors."""
+    from homeassistant.components.androidtv_remote.helpers import create_api
+
+    entity, source = paired_tv
+    target = resolve_target(hass, entity.entity_id, source.entry_id)
+    core = create_api(hass, "tv.invalid", False)
+    assert (target.certfile, target.keyfile) == (core._certfile, core._keyfile)
+
+
+@pytest.mark.asyncio
+async def test_moved_pairing_is_not_reported_as_unpaired(hass, paired_tv):
+    entity, source = paired_tv
+    Path(hass.config.path(".storage", "androidtv_remote_key.pem")).unlink()
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    source.mock_state(hass, ConfigEntryState.LOADED)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"remote_entity": entity.entity_id}
+    )
+    assert result["errors"] == {"base": "pairing_not_found"}
+    hass.data[DOMAIN] = BridgeManager(hass)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"remote_entity": entity.entity_id, "androidtv_entry_id": source.entry_id},
+    )
+    entry.add_to_hass(hass)
+    with pytest.raises(ConfigEntryError):
+        await async_setup_entry(hass, entry)
 
 
 @pytest.mark.asyncio
@@ -105,6 +140,22 @@ async def test_frontend_registers_bundled_resource_and_preserves_other_resources
         url = await async_register_frontend(hass)
     assert f"/{VERSION}/" in url
     resources.async_update_item.assert_awaited_once_with("ours", {"url": url, "res_type": "module"})
+    register.assert_called_once_with(hass, url)
+    registration = hass.http.async_register_static_paths.call_args.args[0][0]
+    assert registration.url_path == f"/tv_voice_bridge/frontend/{VERSION}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lovelace", ["missing", "changed"])
+async def test_frontend_registers_when_lovelace_internals_are_unavailable(hass, lovelace):
+    """The legacy resource migration is optional; HA changes must not block setup."""
+    hass.data.pop(LOVELACE_DATA, None)
+    if lovelace == "changed":
+        resources = Mock(async_get_info=AsyncMock(side_effect=AttributeError))
+        hass.data[LOVELACE_DATA] = SimpleNamespace(resources=resources)
+    hass.http = Mock(async_register_static_paths=AsyncMock())
+    with patch("custom_components.tv_voice_bridge.frontend.frontend.add_extra_js_url") as register:
+        url = await async_register_frontend(hass)
     register.assert_called_once_with(hass, url)
     registration = hass.http.async_register_static_paths.call_args.args[0][0]
     assert registration.url_path == f"/tv_voice_bridge/frontend/{VERSION}"

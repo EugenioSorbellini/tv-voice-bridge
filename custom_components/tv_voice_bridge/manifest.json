@@ -1,6 +1,9 @@
 {
   "domain": "tv_voice_bridge",
   "name": "TV Voice Bridge",
+  "after_dependencies": [
+    "lovelace"
+  ],
   "codeowners": [
     "@EugenioSorbellini"
   ],
@@ -9,7 +12,6 @@
     "androidtv_remote",
     "frontend",
     "http",
-    "lovelace",
     "websocket_api"
   ],
   "documentation": "https://github.com/EugenioSorbellini/tv-voice-bridge",

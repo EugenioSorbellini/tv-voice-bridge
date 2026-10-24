@@ -37,7 +37,11 @@ const registry = () => {
 // HA's app bundle may install a scoped-registry polyfill after this extra module has loaded.
 const native = registry();
 globalThis.customElements = native;
+// Hold define.mjs's fallback timer; tests/test_tv_voice_define.mjs covers it.
+const realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = () => 0;
 const { TVVoiceCard: Card } = await import('../custom_components/tv_voice_bridge/frontend/tv-voice-card.js');
+globalThis.setTimeout = realSetTimeout;
 const { localize, languages } = await import('../custom_components/tv_voice_bridge/frontend/localize.mjs');
 await new Promise(resolve => setImmediate(resolve));
 assert.equal(native.get('tv-voice-card'), undefined, 'Nothing is defined before the HA app.');

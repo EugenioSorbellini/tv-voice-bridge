@@ -18,6 +18,7 @@
     "error": {
       "invalid_target": "Select a configured Android TV remote.",
       "pairing_required": "Pair the TV with the Android TV Remote integration first.",
+      "pairing_not_found": "The Android TV Remote integration is connected, but its pairing files are not where TV Voice Bridge expects them. Update TV Voice Bridge.",
       "unsupported_version": "This Home Assistant/library version is not supported by TV Voice Bridge.",
       "different_target": "Add a separate integration entry for a different TV."
     },
@@ -38,6 +39,7 @@
     "error": {
       "invalid_target": "Select a configured Android TV remote.",
       "pairing_required": "Pair the TV with the Android TV Remote integration first.",
+      "pairing_not_found": "The Android TV Remote integration is connected, but its pairing files are not where TV Voice Bridge expects them. Update TV Voice Bridge.",
       "unsupported_version": "This Home Assistant/library version is not supported by TV Voice Bridge.",
       "different_target": "Add a separate integration entry for a different TV."
     }
@@ -84,6 +86,9 @@
     },
     "pairing_required": {
       "message": "Pair the TV with the Android TV Remote integration first."
+    },
+    "pairing_not_found": {
+      "message": "The Android TV Remote integration is connected, but its pairing files are not where TV Voice Bridge expects them. Update TV Voice Bridge."
     },
     "different_target": {
       "message": "Add a separate integration entry for a different TV."
