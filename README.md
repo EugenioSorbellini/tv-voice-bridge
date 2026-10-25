@@ -85,6 +85,16 @@ python tools/check_release.py
 
 The pinned development requirements reproduce the minimum supported Home Assistant release and its matching official test-fixture plugin. Tests use a real HA WebSocket server, schemas, config flows and entity registry while mocking TV transport. They cover cancellation races, permissions, binary payload privacy under debug logging, deadlines, the full buffer, the client's wire format checked against a fixed copy of the upstream schema, bundled frontend registration, translations, worklet limits and accessibility. Browser smoke tests are documented in `tests/browser/README.md`.
 
+The generated `voice_pb2.py` and `voice_pb2.pyi` are checked in and excluded from Ruff formatting. After changing `voice.proto`, regenerate them from the repository root in a separate compiler environment:
+
+```sh
+python3.14 -m venv /tmp/tv-voice-protoc
+/tmp/tv-voice-protoc/bin/pip install grpcio-tools==1.84.1
+/tmp/tv-voice-protoc/bin/python -m grpc_tools.protoc -I. --python_out=. --pyi_out=. custom_components/tv_voice_bridge/voice.proto
+```
+
+grpcio-tools 1.84.1 bundles protoc 35.1, so the module requires protobuf 7.35.1 or later at import. Keep it at or below the protobuf of the minimum supported Home Assistant (7.36.2 for 2026.10.2), and regenerate with a matching compiler when Home Assistant moves to a new protobuf major; the weekly compatibility workflow imports the module against HA beta first.
+
 Release checks and hardware acceptance are summarized per version in the [Changelog](CHANGELOG.md). The [voice protocol research](docs/voice-protocol-research.md) records the live TV trials behind the voice wire format and its timing, and how to run the protocol lab.
 
 CI also runs official hassfest and HACS validation. Release automation checks the tag against all version declarations and attaches a component-only ZIP to a published GitHub release. Publishing is a separate maintainer action; local tests do not certify compatibility with untested TVs or future HA releases.
