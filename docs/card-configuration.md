@@ -16,7 +16,7 @@ The selected TV must already have a TV Voice Bridge integration entry. The integ
 | `entity` | Automatic selection | Android TV Remote entity configured in TV Voice Bridge. May be omitted when exactly one TV is configured. |
 | `activation` | `hold` | `hold` records while pressed and submits on release; `toggle` starts on one activation and submits on the next. |
 
-The visual editor exposes `entity` and `activation`. English and Italian follow the Home Assistant user's language, with English fallback. In hold mode, Space and Enter support keyboard holds; assistive activation supports start/stop toggling. Both activation modes share the 15-second capture cap and cancellation behavior described in the [README](../README.md#recording-cancellation-and-privacy).
+The visual editor exposes `entity` and `activation`. English and Italian follow the Home Assistant user's language, with English fallback. In hold mode, Space and Enter support keyboard holds; assistive activation supports start/stop toggling. Both activation modes share the 15-second capture cap. Escape, hiding the page, an interrupted touch, removing the card or losing the Home Assistant connection cancels a recording and anything not yet sent.
 
 ## Composition and styling
 
