@@ -7,7 +7,7 @@ Hold the microphone button to record and release it to send. Recording starts wh
 ## Requirements and compatibility
 
 - Home Assistant **2026.10.2 or later**, with the **Android TV Remote** integration already configured and paired.
-- The bridge talks to the TV with its own voice-only client and reuses the Android TV Remote integration's pairing. It does not depend on the androidtvremote2 version Home Assistant ships.
+- The bridge talks to the TV with its own voice-only client and reuses the Android TV Remote integration's pairing.
 - HTTPS (or a secure localhost context), a microphone, and a browser supporting AudioWorklet. Browser microphone permission is requested only when recording is deliberately started.
 - A TV that advertises voice support. Speech recognition also depends on its installed assistant, network access, language and account settings.
 
@@ -89,7 +89,7 @@ Release checks and hardware acceptance are summarized per version in the [Change
 
 CI also runs official hassfest and HACS validation. Release automation checks the tag against all version declarations and attaches a component-only ZIP to a published GitHub release. Publishing is a separate maintainer action; local tests do not certify compatibility with untested TVs or future HA releases.
 
-A weekly **Home Assistant compatibility** workflow (also runnable manually) tests the current stable and beta HA releases ahead of users. It runs the Python tests with the androidtvremote2 and frontend versions each release pins; the bridge no longer uses that library at runtime, but the core integration it depends on does. It also starts the official HA container with this integration, onboards it, saves a dashboard containing the card, and checks on five page loads that HA renders `tv-voice-card` rather than an error card. HA betas usually appear about a week before each monthly release.
+A weekly **Home Assistant compatibility** workflow (also runnable manually) tests the current stable and beta HA releases ahead of users. It runs the Python tests with the androidtvremote2 (used by the core Android TV Remote integration) and frontend versions each release pins. It also starts the official HA container with this integration, onboards it, saves a dashboard containing the card, and checks on five page loads that HA renders `tv-voice-card` rather than an error card. HA betas usually appear about a week before each monthly release.
 
 ## Removal
 

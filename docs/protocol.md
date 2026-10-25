@@ -25,7 +25,7 @@ After a binary failure or session timeout, the server retains only failure metad
 
 A TV close drops all held audio and unregisters the binary upload handler. The owning client's next progress/stop request receives `session_ended`; the bundled card, which streams while recording, then stops capture with that error. This protocol version does not push a microphone-stop event.
 
-Its handshake, ping and key messages follow upstream's `remotemessage.proto` field numbers; fields the bridge does not use are left out and skipped on parse. The only hand-written encoding is the varint length before each message, because protobuf's Python package has no public length-delimited API. Tests check the client's output against `tests/upstream_schema.proto`, a fixed test-only copy of the androidtvremote2 0.3.2 wire layout for these fields, and hand-built bytes, so they do not depend on the library version Home Assistant installs.
+Its handshake, ping and key messages follow upstream's `remotemessage.proto` field numbers; fields the bridge does not use are left out and skipped on parse. The only hand-written encoding is the varint length before each message, because protobuf's Python package has no public length-delimited API. Tests check the client's output against `tests/upstream_schema.proto`, a fixed test-only copy of the androidtvremote2 0.3.2 wire layout for these fields, and hand-built bytes.
 
 The generated Python module and type stub are checked in. Regenerate them from the repository root in a separate compiler environment (the compiler is not a runtime dependency):
 
