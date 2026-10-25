@@ -16,7 +16,7 @@
 - Docs aligned with 1.3.0: troubleshooting, tested Remote Service version and the 1.3.0 live validation.
 - The card no longer reports every unrecognised failure as a pairing problem: the fallback message names the error (its identifier only, never its text) and logs it, and a microphone held by another app gets its own message (`microphone_busy`).
 
-Validated with 78 Python tests (92% statement coverage including the generated module), frontend tests, Ruff, mypy and tag/version checks, and GitHub CI including hassfest and HACS validation; the weekly compatibility workflow passed against Home Assistant stable and beta. The card and config-flow changes in this release were not tested live on the TV; voice delivery is unchanged from 1.3.0.
+Validated with 78 Python tests (92% statement coverage including the generated module), frontend tests, Ruff, mypy and tag/version checks, and GitHub CI including hassfest and HACS validation; the weekly compatibility workflow passed against Home Assistant stable and beta. Tested in full by the owner on the tested TCL after release.
 
 ## 1.3.0 — 2026-10-25
 
