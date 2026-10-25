@@ -1,6 +1,10 @@
+// Card definition helper (define.mjs) when HA's root element never appears.
+// Stubs customElements so home-assistant is never defined, and captures timers.
+// Verifies: the card isn't defined at first; one fallback timer is set for
+// APP_READY_TIMEOUT_MS; when it fires, the card is defined; defining the same name again
+// keeps the existing class instead of throwing.
 import assert from 'node:assert/strict';
 
-// Without HA's root element, the card is still defined after the fallback timeout.
 const elements = new Map();
 globalThis.customElements = {
   define(name, type) { elements.set(name, type); },

@@ -1,3 +1,6 @@
+// Voice card (tv-voice-card.js) with stubbed DOM, microphone, AudioContext, worklet and
+// Home Assistant connection. Each block below is one scenario; the stub server answers
+// start, progress and stop like the bridge, and records every JSON call and binary frame.
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 
@@ -34,7 +37,12 @@ const registry = () => {
     },
   };
 };
-// HA's app bundle may install a scoped-registry polyfill after this extra module has loaded.
+// Registration into the registry HA really uses.
+// Loads the card with a native registry, then swaps in a second registry, as HA's
+// scoped-registry polyfill does, before HA's root element is defined.
+// Verifies: nothing is defined before the HA app; the card and its editor land in the
+// registry that is current when home-assistant is defined, not in the original native
+// one; the card exposes stylingVersion 1.
 const native = registry();
 globalThis.customElements = native;
 // Hold define.mjs's fallback timer; tests/test_tv_voice_define.mjs covers it.
@@ -54,6 +62,8 @@ assert.equal(polyfill.get('tv-voice-card'), Card, 'The card lands in the registr
 assert.ok(polyfill.get('tv-voice-card-editor'));
 assert.equal(native.get('tv-voice-card'), undefined);
 assert.equal(Card.stylingVersion, 1);
+// Initial state.
+// Verifies: a freshly configured card is idle and its status uses the hint part.
 {
   const card = new Card();
   card.setConfig({});
@@ -119,7 +129,16 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   return { card, calls, frames };
 }
 
-// Exact audio is retained while released, even when the handshake is delayed.
+// Release before the TV is ready.
+// Presses with pointer 7, captures one 8192-byte chunk while start is still pending,
+// ignores a pointerup from another pointer, then releases; only afterwards does start
+// succeed.
+// Verifies: data-state, aria-pressed and CSS parts follow idle -> recording -> sending
+// -> idle; the pointer is captured; microphone and audio context close on release;
+// stray lostpointercapture and click events don't restart recording; the single frame
+// carries handler id 3, the session token and sequence 0 followed by exactly the
+// captured audio; no JSON message contains audio; stop is sent with cancel: false and
+// the success status is shown.
 {
   let ready;
   const { card, calls, frames } = create({ start: new Promise(resolve => { ready = resolve; }) });
@@ -157,7 +176,12 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   assert.match(card._status.textContent, /Audio inviato/);
 }
 
-// Permission denial/release cannot start recording later.
+// Microphone permission.
+// Releases while the permission prompt is still open, then grants it; afterwards the
+// browser denies permission (NotAllowedError).
+// Verifies: a late grant after release stops the stream and closes the audio context
+// without contacting Home Assistant; a denial shows the localized "microphone not
+// allowed" message.
 {
   let permission;
   getUserMedia = () => new Promise(resolve => { permission = resolve; });
@@ -174,7 +198,11 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   getUserMedia = async () => makeMedia();
 }
 
-// The complete 15-second buffer drains with bounded outstanding requests.
+// Full-length recording.
+// Captures 59 chunks of 8192 bytes, more than 15 seconds, then releases.
+// Verifies: the card keeps exactly 480000 bytes and uploads all of them in 59 frames
+// (58 full and a 4864-byte tail), then shows the success status. The four-frame upload
+// window is checked in the streaming and cancellation blocks, not here.
 {
   const { card, frames } = create();
   await card._start();
@@ -186,7 +214,10 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   assert.match(card._status.textContent, /Audio inviato/);
 }
 
-// The main-thread deadline still closes capture while the TV connects.
+// 15-second cap on the main thread.
+// With fake timers and start still pending, records one chunk and advances time.
+// Verifies: the card is still recording at 14.999 s and stops at 15 s, closing the
+// microphone and audio context, even though the TV hasn't answered start yet.
 {
   mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   let ready;
@@ -199,7 +230,10 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   mock.timers.reset();
 }
 
-// Closing a pending delivery actively cancels startup and drops audio.
+// Cancel while start is pending.
+// Records, releases and then cancels before start answers; start succeeds afterwards.
+// Verifies: a cancel command is sent; after the late start no frame is uploaded; the
+// card returns to idle and releases the recording buffer.
 {
   let ready;
   const { card, calls, frames } = create({ start: new Promise(resolve => { ready = resolve; }) });
@@ -213,7 +247,11 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   assert.equal(card._buffer, null, 'recording released');
 }
 
-// Stable error codes are localized; raw server text is never displayed.
+// Server error codes.
+// Makes progress fail with delivery_failed, then maps an unknown code with a server
+// message.
+// Verifies: delivery_failed shows the localized "not delivered" message; an unknown
+// code falls back to errors.unavailable and the server's text is never used.
 {
   const { card } = create({ failProgress: true, language: 'en' });
   await card._start(); processor.audio(); await card._stop();
@@ -221,7 +259,13 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   assert.equal(card._errorKey({ code: 'unknown_code', message: 'PRIVATE SERVER DETAIL' }), 'errors.unavailable');
 }
 
-// Unmapped failures name their identifier, never their text; a busy microphone has its own message.
+// Unmapped failures.
+// The microphone fails with OverconstrainedError (with private text), then with
+// NotReadableError; an error code containing a space is mapped too.
+// Verifies: the unmapped error shows the generic message followed by its name, never
+// its text, and logs the name with console.warn; NotReadableError shows the "in use by
+// another app" message; a code with a space falls back to errors.unavailable with no
+// name shown; Home Assistant is never contacted.
 {
   const { card, calls } = create({ language: 'en' });
   const warn = mock.method(console, 'warn', () => {});
@@ -240,7 +284,12 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   getUserMedia = async () => makeMedia();
 }
 
-// Each network phase times out, even while the socket still appears open.
+// Request timeouts while the socket stays open.
+// For each of start, progress and stop, the stub never answers that request; fake
+// timers advance 20 s for start and 10 s for the others.
+// Verifies: the card returns to idle with the button enabled, releases the buffer,
+// closes the microphone and audio context, shows "timed out" and sends cancel; when
+// start finally answers late, no session is adopted and no frame is uploaded.
 for (const phase of ['start', 'progress', 'stop']) {
   mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   let ready;
@@ -266,7 +315,11 @@ for (const phase of ['start', 'progress', 'stop']) {
   mock.timers.reset();
 }
 
-// Cancellation finishes without replies, aborts old waits, and keeps its message.
+// Cancel without a reply.
+// Cancels a recording while the cancel command never answers, once plainly and once
+// with the capture_failed error as the reason.
+// Verifies: the card returns to idle and releases the buffer without waiting; it shows
+// the given reason (or "cancelled"); exactly one cancel and no stop is sent.
 for (const message of ['', 'errors.capture_failed']) {
   const { card, calls } = create({ language: 'en', stall: 'cancel' });
   await card._start(); await flush(); processor.audio();
@@ -277,6 +330,12 @@ for (const message of ['', 'errors.capture_failed']) {
   assert.equal(calls.filter(call => call.type.endsWith('/cancel')).length, 1);
   assert.ok(!calls.some(call => call.type.endsWith('/stop')));
 }
+// Cancel during upload.
+// Holds every progress acknowledgement, captures six chunks and releases, then cancels
+// (cancel never answers) and finally delivers the held acknowledgements.
+// Verifies: only four frames are in flight before acknowledgements; cancel returns the
+// card to idle and releases the buffer; late acknowledgements don't resume the upload;
+// the status shows "cancelled".
 {
   const acknowledgements = [];
   const { card, frames } = create({ language: 'en' });
@@ -300,7 +359,13 @@ for (const message of ['', 'errors.capture_failed']) {
   assert.equal(card._message, 'cancelled');
 }
 
-// Audio streams while recording continues, and the window refills as acks arrive.
+// Streaming while recording.
+// Holds progress acknowledgements and captures two half chunks, then five full chunks,
+// acknowledging one; then releases and acknowledges the rest.
+// Verifies: half a chunk isn't sent; a full chunk is sent while still recording; at most
+// four frames are unacknowledged and one acknowledgement lets the next frame go; stop
+// isn't sent while recording; in the end six frames with sequences 0-5 carry 6 x 8192
+// bytes, stop's expected_bytes matches, and the success status shows.
 {
   const acknowledgements = [];
   const { card, calls, frames } = create({ language: 'en' });
@@ -333,7 +398,10 @@ for (const message of ['', 'errors.capture_failed']) {
   assert.match(card._status.textContent, /sent/i);
 }
 
-// A failed acknowledgement during recording stops capture and reports the error.
+// Upload failure while recording.
+// Makes progress fail with delivery_failed and captures one chunk.
+// Verifies: recording stops without a release, the microphone and audio context close,
+// the card shows "not delivered" and sends cancel.
 {
   const { card, calls } = create({ language: 'en', failProgress: true });
   await card._start(); await flush();
@@ -346,7 +414,10 @@ for (const message of ['', 'errors.capture_failed']) {
   assert.ok(calls.some(call => call.type.endsWith('/cancel')));
 }
 
-// Silent recordings are discarded on the server even if frames were streamed.
+// Silent recording.
+// Captures one chunk of silence (peak 0), which is streamed, then releases.
+// Verifies: the frame was uploaded, but the final stop is sent with cancel: true, so
+// the bridge forwards nothing to the TV.
 {
   const { card, calls, frames } = create({ language: 'en' });
   await card._start(); await flush();
@@ -358,7 +429,9 @@ for (const message of ['', 'errors.capture_failed']) {
   assert.equal(calls.at(-1).cancel, true);
 }
 
-// Repeated hass updates with the same language do not re-render.
+// Re-rendering on hass updates.
+// Assigns hass five times with the same language, then once with another language.
+// Verifies: the same language causes no render; a language change renders once.
 {
   const { card } = create({ language: 'en' });
   let renders = 0;
@@ -370,7 +443,11 @@ for (const message of ['', 'errors.capture_failed']) {
   assert.equal(renders, 1);
 }
 
-// Replies within each request deadline cannot extend the absolute lifetime.
+// Overall 90-second deadline.
+// Each progress reply arrives after 9 s, inside the 10 s per-request limit, while a
+// full 59-chunk recording uploads.
+// Verifies: the overall deadline still ends the upload with "timed out", returning the
+// card to idle and releasing the buffer.
 {
   mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   const { card } = create({ language: 'en' });
@@ -391,7 +468,9 @@ for (const message of ['', 'errors.capture_failed']) {
   mock.timers.reset();
 }
 
-// Physical holds, AT-generated clicks and optional toggle mode all work.
+// Keyboard holds.
+// For Space and Enter: keydown, a repeated keydown, then keyup.
+// Verifies: the key starts recording, auto-repeat is ignored and keyup sends, ending idle.
 for (const key of [' ', 'Enter']) {
   const { card } = create();
   press(card, 'keydown', { key }); await flush(); processor.audio();
@@ -399,6 +478,10 @@ for (const key of [' ', 'Enter']) {
   press(card, 'keyup', { key }); await card._sending;
   assert.equal(card._state, 'idle');
 }
+// Assistive clicks and toggle mode.
+// In hold mode, sends two clicks with detail 0 (screen readers and switch access);
+// then switches to activation: toggle and sends two ordinary clicks.
+// Verifies: each pair starts recording and then sends, ending idle.
 {
   const { card } = create();
   press(card, 'click', { detail: 0 }); await flush();
@@ -410,6 +493,11 @@ for (const key of [' ', 'Enter']) {
   press(card, 'click', { detail: 1 }); await card._sending;
   assert.equal(card._state, 'idle');
 }
+// Audio context resumed within the user gesture.
+// Makes the microphone request end the gesture, and checks inside resume() that the
+// gesture is still active.
+// Verifies: the card resumes its AudioContext before requesting the microphone. If
+// resume() were never called, this block would not fail.
 {
   let gesture = true;
   window.AudioContext = class extends AudioContext { async resume() { assert.ok(gesture); } };
@@ -418,6 +506,9 @@ for (const key of [' ', 'Enter']) {
   window.AudioContext = AudioContext;
   getUserMedia = async () => makeMedia();
 }
+// Translations.
+// Verifies: Italian and English have the same keys; an unsupported language (fr-FR)
+// falls back to English; Italian strings interpolate seconds and limit.
 const keys = object => Object.entries(object).flatMap(([key, value]) => typeof value === 'object' ? keys(value).map(child => key + '.' + child) : [key]).sort();
 assert.deepEqual(keys(languages.it), keys(languages.en));
 assert.equal(localize('fr-FR', 'title'), 'Speak to TV');

@@ -27,6 +27,13 @@ def frame(message):
 
 class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
     def test_default_is_offline(self):
+        """Running the lab without --execute only prints a plan.
+
+        Runs main with no arguments, with the live trial patched to fail the test if called.
+
+        Verifies: it exits 0 without starting a trial and prints a JSON report in
+        offline_plan mode.
+        """
         with (
             patch.object(lab, "run_trial", side_effect=AssertionError("Live execution attempted")),
             contextlib.redirect_stdout(io.StringIO()) as output,
@@ -35,13 +42,32 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(output.getvalue())["mode"], "offline_plan")
 
     def test_live_requires_a_fixture(self):
+        """--execute alone is refused.
+
+        Runs main with only --execute.
+
+        Verifies: argparse exits with an error. It doesn't check which argument is reported
+        missing (host, certificate, key or WAV).
+        """
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             lab.main(["--execute"])
 
     def test_fixture_rate_matches_the_client(self):
+        """The lab records at the client's sample rate.
+
+        Verifies: the lab's RATE equals the client's SAMPLE_RATE (16000).
+        """
         self.assertEqual(lab.RATE, lab.bridge_client().SAMPLE_RATE)
 
     def test_fixture_rate_duration_and_truncation(self):
+        """WAV fixtures are checked for rate and completeness.
+
+        Writes a one-second 16 kHz mono 16-bit WAV, reads it at 16 kHz and at 8 kHz, then
+        truncates the file by two bytes and reads it again.
+
+        Verifies: the 16 kHz read returns 32000 bytes; the rate mismatch and the truncated
+        file both raise ValueError.
+        """
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "fixture.wav"
             with wave.open(str(path), "wb") as wav:
@@ -57,6 +83,16 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
                 lab.read_audio(path, 16000)
 
     async def test_bridge_trial_observes_the_real_client_without_payloads(self):
+        """The lab records the real client's TV messages without session ids.
+
+        While start_voice is pending, feeds the client of a BridgeTrial a configure, an IME
+        app report, a voice-begin and a close for session 999271.
+
+        Verifies: start fails because the close arrived first; the lab records
+        initial_app_report, remote_voice_begin and server_field_31, with the close matching
+        the session; it captures the vendor as manufacturer and voice as enabled; the session
+        id appears nowhere in the events.
+        """
         pb2 = importlib.import_module(lab.bridge_client().__package__ + ".voice_pb2")
         recorder = lab.Lab()
         args = types.SimpleNamespace(host="tv.invalid", cert="cert", key="key")
@@ -86,6 +122,15 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("999271", json.dumps(recorder.events))
 
     async def test_failure_cleanup_and_metadata_privacy(self):
+        """Failed trials clean up and keep private details out of the report.
+
+        Runs one trial that fails on connect and one that fails while sending audio, with the
+        host, certificate, key and error text all marked PRIVATE.
+
+        Verifies: the client is disconnected once, voice is ended after the audio failure,
+        the report says transport_failed with recognition not_observed, and no PRIVATE value
+        appears in it.
+        """
         for phase in ("connect", "audio"):
             with self.subTest(phase=phase):
                 args = types.SimpleNamespace(
@@ -113,6 +158,15 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("PRIVATE", json.dumps(report))
 
     async def test_poll_startup_requests_voice_once_flag_is_enabled(self):
+        """Poll startup requests voice as soon as the TV reports voice enabled.
+
+        Runs a trial with --startup poll and a 1 s ready delay, where voice becomes enabled
+        during the first poll.
+
+        Verifies: the trial completes; the report records voice as not enabled at connect;
+        it polls in 0.05 s steps and never sleeps the 1 s delay; voice is requested once and
+        the client disconnected once.
+        """
         args = types.SimpleNamespace(
             host="PRIVATE_HOST",
             cert=Path("PRIVATE_CERT"),
@@ -148,6 +202,15 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
         remote.disconnect.assert_called_once()
 
     async def test_experimental_startup_waits_for_callback_without_fixed_sleep(self):
+        """IME startup waits for the TV's app report instead of a fixed delay.
+
+        Runs a trial with --startup ime and a 1 s ready delay, where connect delivers an IME
+        app report.
+
+        Verifies: the trial completes; the first event is initial_app_report; every sleep is
+        zero seconds; the client is disconnected once; no PRIVATE value appears in the
+        report.
+        """
         args = types.SimpleNamespace(
             host="PRIVATE_HOST",
             cert=Path("PRIVATE_CERT"),

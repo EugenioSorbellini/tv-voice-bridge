@@ -1,4 +1,12 @@
-"""Validate repository metadata and bundled assets before release."""
+"""Release contract, run in CI on every push and with the tag on each release.
+
+Verifies: the version matches across manifest.json, pyproject.toml, package.json and
+const.py, and the release tag when given; the manifest has its required fields and
+config_flow; hacs.json declares Home Assistant 2026.10.2; LICENSE, README.md and the brand
+icon exist; English and Italian translations have the same keys; custom_components holds
+only tv_voice_bridge; no .pem, .key or .pyc file is bundled; frontend modules don't use
+the deprecated createScriptProcessor and every relative import resolves to a bundled file.
+"""
 
 import argparse
 import json

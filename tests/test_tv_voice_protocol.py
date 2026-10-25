@@ -111,6 +111,15 @@ async def open_voice(client, frames, session_id=7):
 
 
 async def test_handshake_matches_upstream_replies(wire):
+    """Handshake replies match androidtvremote2 0.3.2.
+
+    Feeds the TV's configure message (offering ping, key, IME, voice, power and volume),
+    then set-active and remote-start.
+
+    Verifies: the client answers with configure and set-active messages whose feature
+    flags are upstream's flags limited to those the TV offered, with upstream's device
+    info (unknown1 1, unknown2 "1", package atvremote, version 1.0.0); voice is enabled.
+    """
     client, _, frames = wire()
     handshake(client)
     configure, active = (RemoteMessage.FromString(raw) for raw in messages(frames))
@@ -127,12 +136,25 @@ async def test_handshake_matches_upstream_replies(wire):
 
 
 async def test_voice_disabled_when_tv_lacks_the_feature(wire):
+    """Voice is disabled when the TV doesn't offer the voice feature.
+
+    Completes the handshake with only ping and key offered.
+
+    Verifies: is_voice_enabled is false.
+    """
     client, _, _ = wire()
     handshake(client, features=PING | KEY)
     assert not client.is_voice_enabled
 
 
 async def test_ping_reply_and_split_frames(wire):
+    """Ping replies, with the request delivered one byte at a time.
+
+    Feeds a ping request split into single bytes, including inside its length prefix.
+
+    Verifies: the client reassembles the message and answers with a ping response that
+    echoes val1 (300).
+    """
     client, _, frames = wire()
     ping = RemoteMessage()
     ping.remote_ping_request.val1 = 300
@@ -146,6 +168,17 @@ async def test_ping_reply_and_split_frames(wire):
 
 @pytest.mark.parametrize("session_id", [0, 7, 128, 2147483647, -1, -2147483648])
 async def test_voice_messages_preserve_audio_and_signed_session(wire, session_id):
+    """Exact bytes of a voice session, for signed session ids at the int32 edges.
+
+    Completes the handshake, starts voice and answers with a TV voice-begin carrying the
+    parametrized session id (0, 7, 128, int32 max, -1, int32 min). Then sends one audio
+    chunk and ends voice.
+
+    Verifies: start sends a SEARCH key press (keycode 84, short press); the voice-begin
+    reply matches hand-built bytes declaring 16 kHz, mono mask 16 and PCM16 format 2,
+    with negative ids as ten-byte varints; the audio is sent as raw bytes in field 31,
+    not upstream's nested message; voice-end carries the same session id.
+    """
     client, _, frames = wire()
     handshake(client)
     frames.clear()
@@ -172,6 +205,15 @@ async def test_voice_messages_preserve_audio_and_signed_session(wire, session_id
 
 
 async def test_server_close_is_matched_once_and_stops_audio(wire):
+    """Only a TV close for the active session ends voice, and only once.
+
+    Opens voice with session 7, then feeds a close for session 8, a close without a
+    session id and two closes for session 7, and finally tries to send audio and end
+    voice.
+
+    Verifies: the mismatched and id-less closes are ignored; the owner's close callback
+    runs exactly once; after the close no audio, voice-end or other message is sent.
+    """
     closed = Mock()
     client, _, frames = wire(closed)
     stream = await open_voice(client, frames)
@@ -189,6 +231,14 @@ async def test_server_close_is_matched_once_and_stops_audio(wire):
 
 
 async def test_close_in_same_read_as_offer_cannot_open_voice(wire):
+    """A voice-begin and its close arriving in one read never open voice.
+
+    Starts voice, then delivers the TV's voice-begin and a close for the same session in
+    a single data chunk.
+
+    Verifies: start fails with session_ended; the close callback runs once; nothing is
+    sent to the TV, not even the voice-begin reply.
+    """
     closed = Mock()
     client, _, frames = wire(closed)
     handshake(client)
@@ -205,6 +255,12 @@ async def test_close_in_same_read_as_offer_cannot_open_voice(wire):
 
 
 async def test_unsolicited_offer_is_ignored(wire):
+    """A voice-begin the client didn't request is ignored.
+
+    Feeds a TV voice-begin without calling start_voice.
+
+    Verifies: no session is opened and nothing is sent.
+    """
     client, _, frames = wire()
     handshake(client)
     frames.clear()
@@ -214,6 +270,13 @@ async def test_unsolicited_offer_is_ignored(wire):
 
 
 async def test_start_voice_times_out_and_fails_on_lost_connection(wire):
+    """Voice start can be timed out and fails when the connection drops.
+
+    Starts voice with no TV reply under a 0.01 s timeout set by the test (the production
+    5 s limit lives in the session); then starts again and drops the connection.
+
+    Verifies: the first attempt raises TimeoutError; the second fails with unavailable.
+    """
     client, _, _ = wire()
     handshake(client)
     with pytest.raises(TimeoutError):
@@ -228,6 +291,14 @@ async def test_start_voice_times_out_and_fails_on_lost_connection(wire):
 
 @pytest.mark.parametrize("raw", [b"\xfa\x01\x02\x08", b"\x0a\x01\xff", b"\x0f"])
 async def test_malformed_message_is_ignored_without_exposing_payload(wire, raw, caplog):
+    """Undecodable TV messages are skipped without closing the connection or logging them.
+
+    With debug logging on, feeds one of three malformed messages (parametrized): a
+    truncated field 31, a nested field with a broken varint, and an invalid wire type.
+
+    Verifies: the close callback isn't called, the connection isn't aborted, and the raw
+    bytes don't appear in the logs.
+    """
     caplog.set_level("DEBUG")
     closed = Mock()
     client, transport, _ = wire(closed)
@@ -238,12 +309,26 @@ async def test_malformed_message_is_ignored_without_exposing_payload(wire, raw, 
 
 
 async def test_corrupt_length_aborts_the_connection(wire):
+    """A corrupt length prefix aborts the connection.
+
+    Feeds eleven 0xff bytes, a varint longer than any valid length.
+
+    Verifies: the transport is aborted once.
+    """
     client, transport, _ = wire()
     client.data_received(b"\xff" * 11)
     transport.abort.assert_called_once()
 
 
 async def test_echoed_audio_and_session_ids_never_reach_logs(wire, caplog):
+    """TV errors echoing audio, and session ids, never reach the logs.
+
+    With debug logging on, opens voice with session 999271 and sends audio, then feeds a
+    TV remote-error message that echoes an audio payload and a close for the session.
+
+    Verifies: the error is logged as "TV reported a remote protocol error", but neither
+    the audio bytes nor the session id appear in the logs.
+    """
     client, _, frames = wire()
     caplog.set_level("DEBUG")
     stream = await open_voice(client, frames, 999271)
@@ -258,6 +343,12 @@ async def test_echoed_audio_and_session_ids_never_reach_logs(wire, caplog):
 
 
 async def test_idle_connection_is_closed(wire):
+    """An idle TV connection is closed.
+
+    Shortens the idle timeout to 0.01 s, rearms it and waits.
+
+    Verifies: the transport is closed gracefully, once.
+    """
     client, transport, _ = wire()
     with patch.object(client_module, "IDLE_TIMEOUT", 0.01):
         client.data_received(b"")  # Rearm with the patched timeout.
@@ -266,6 +357,15 @@ async def test_idle_connection_is_closed(wire):
 
 
 async def test_connect_waits_for_remote_start_and_reports_early_close():
+    """Connect completes only after the TV's remote-start, and fails on an early drop.
+
+    Patches the TLS context and connection creation, starts connect and checks it is
+    still pending, then completes the handshake. A second client loses its connection
+    during connect.
+
+    Verifies: it connects to port 6466 using the pairing certificate and key; connect
+    waits for the handshake; the early drop fails connect with unavailable.
+    """
     loop = asyncio.get_running_loop()
     client = TvVoiceClient("tv.invalid", "cert", "key", loop)
     transport = Mock(is_closing=Mock(return_value=False))
@@ -324,6 +424,16 @@ async def start_session(wire):
 
 
 async def test_submission_waits_for_real_close_and_preserves_queued_tail(wire):
+    """Submission sends the held audio and voice-end, then waits for the real close.
+
+    Runs a real VoiceSession with the client, feeds 100 bytes and submits; waits for the
+    session to close, then lets the TV connection close.
+
+    Verifies: the 100 bytes are sent raw in field 31, followed by voice-end; graceful
+    close is requested and the TV reservation released right away; wait_closed stays
+    pending until the connection is lost; the result reports 100 forwarded bytes and no
+    failure; the disconnect callback runs once and the transport is never aborted.
+    """
     session, released, disconnected, client, transport, frames = await start_session(wire)
     session.feed(b"\x01\x02" * 50)
     session.close(flush=True)
@@ -346,6 +456,15 @@ async def test_submission_waits_for_real_close_and_preserves_queued_tail(wire):
 
 @pytest.mark.parametrize("failure", ["timeout", "network"])
 async def test_failed_graceful_close_is_bounded_and_reported(wire, failure):
+    """A close that stalls or fails is bounded and reported as a delivery failure.
+
+    Submits with the close timeout shortened to 0.01 s, and either lets it expire
+    (timeout) or drops the connection with an error (network).
+
+    Verifies: the result reports delivery_failed with error delivery_failed; the client's
+    close future isn't cancelled; the transport is aborted only on timeout; the
+    disconnect callback runs once.
+    """
     session, _, disconnected, client, transport, _ = await start_session(wire)
     with patch.object(client_module, "CLOSE_TIMEOUT", 0.01):
         session.close(flush=True)
@@ -360,6 +479,16 @@ async def test_failed_graceful_close_is_bounded_and_reported(wire, failure):
 
 
 async def test_tv_close_drops_buffer_releases_session_and_unload_waits(wire):
+    """A TV close discards held audio and frees the TV; unload waits for the close.
+
+    Feeds 100 bytes and delivers the TV's close; then unloads while the connection is
+    still open, and finally closes it.
+
+    Verifies: the session closes with session_ended and an empty buffer, and nothing is
+    sent; the reservation is released immediately; unload stays pending until the
+    connection is lost; the disconnect callback runs once and the transport isn't
+    aborted.
+    """
     session, released, disconnected, client, transport, frames = await start_session(wire)
     session.feed(bytes(100))
     receive(client, server_close())
@@ -377,6 +506,13 @@ async def test_tv_close_drops_buffer_releases_session_and_unload_waits(wire):
 
 
 async def test_cancelled_waiter_does_not_cancel_owned_shutdown(wire):
+    """Cancelling a caller that waits for close doesn't cancel the session's shutdown.
+
+    Cancels the session, starts a waiter on wait_closed and cancels that waiter.
+
+    Verifies: the waiter is cancelled but the client's close future isn't; after the
+    connection closes, shutdown completes and the disconnect callback runs once.
+    """
     session, _, disconnected, client, _, _ = await start_session(wire)
     session.close()
     waiter = asyncio.create_task(session.wait_closed())
@@ -391,6 +527,12 @@ async def test_cancelled_waiter_does_not_cancel_owned_shutdown(wire):
 
 
 def test_stream_end_is_sent_once():
+    """Voice-end is sent once, and audio can't follow it.
+
+    Calls end twice on a voice stream, then tries to send audio.
+
+    Verifies: one message is sent and the audio after end is refused.
+    """
     client = Mock(voice_closed_by_tv=False)
     stream = VoiceStream(client, 7)
     stream.end()
@@ -400,6 +542,12 @@ def test_stream_end_is_sent_once():
 
 
 async def test_closed_connection_releases_the_owner_callback(wire):
+    """A closed connection no longer calls its owner back.
+
+    Opens voice, closes the connection, then delivers a TV close.
+
+    Verifies: the close callback isn't called.
+    """
     closed = Mock()
     client, _, frames = wire(closed)
     await open_voice(client, frames)
@@ -409,6 +557,13 @@ async def test_closed_connection_releases_the_owner_callback(wire):
 
 
 async def test_tv_close_after_our_end_is_still_reported(wire):
+    """A TV close after the client's voice-end is still reported.
+
+    Opens voice, ends it, then delivers the TV's close.
+
+    Verifies: the close callback runs once and the client records that the TV closed
+    voice.
+    """
     closed = Mock()
     client, _, frames = wire(closed)
     stream = await open_voice(client, frames)

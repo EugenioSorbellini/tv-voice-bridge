@@ -42,6 +42,15 @@ def no_ready_delay():
 
 @pytest.mark.asyncio
 async def test_late_connect_after_cancellation_is_disconnected():
+    """A TV connection that completes after cancellation is closed, not used.
+
+    Starts a session whose connect step ignores cancellation and finishes late, closes
+    the session while connect is pending, then lets connect complete.
+
+    Verifies: the client is disconnected on close and again when the late connect lands;
+    start fails with cancelled; voice is never requested; the TV reservation is released
+    exactly once.
+    """
     remote = Remote()
     started = asyncio.Event()
     finish = asyncio.Event()
@@ -73,6 +82,17 @@ async def test_late_connect_after_cancellation_is_disconnected():
 
 @pytest.mark.asyncio
 async def test_recording_and_upload_have_separate_deadlines():
+    """Deadlines and submission of a full 15-second recording.
+
+    Starts a session against a stub TV client and feeds audio in 8192-byte frames up to
+    exactly 480000 bytes, the 15-second limit, then submits it.
+
+    Verifies: before any audio, the first-audio deadline is about 30 s; the first frame
+    replaces it with a 15 s inactivity deadline; nothing reaches the TV before stop; stop
+    forwards all 480000 bytes as 58 chunks of 8192 bytes plus a 4864-byte tail, without a
+    delivery failure; the graceful disconnect starts immediately and no close task remains
+    after shutdown.
+    """
     remote = Remote()
     session = VoiceSession(remote.open, Mock())
     await session.start()
@@ -97,6 +117,15 @@ async def test_recording_and_upload_have_separate_deadlines():
 
 @pytest.mark.asyncio
 async def test_byte_limit_and_idle_expiry():
+    """Recording limit and session timeout.
+
+    Feeds 16384-byte frames until the next one would pass 480000 bytes, then fires a
+    second session's timeout handler directly.
+
+    Verifies: the overflowing frame raises recording_limit and closes the session with
+    that error; the timeout closes the session with session_timeout. The handler is called
+    directly, so the idle and lifetime timers that schedule it are not exercised.
+    """
     remote = Remote()
     session = VoiceSession(remote.open, Mock())
     await session.start()
@@ -116,6 +145,14 @@ async def test_byte_limit_and_idle_expiry():
 
 @pytest.mark.asyncio
 async def test_cancel_drops_tail_and_final_failure_is_reported():
+    """Cancel discards held audio; a send rejected at submission is reported.
+
+    The first session feeds 100 bytes and closes without submitting. The second feeds 100
+    bytes, makes the TV stream reject chunks, and submits.
+
+    Verifies: cancel forwards nothing; the rejected chunk sets delivery_failed in the
+    submission result.
+    """
     remote = Remote()
     session = VoiceSession(remote.open, Mock())
     await session.start()
@@ -135,6 +172,13 @@ async def test_cancel_drops_tail_and_final_failure_is_reported():
 
 @pytest.mark.asyncio
 async def test_cancel_after_streaming_forwards_nothing_and_peak_is_exact():
+    """Cancel after a long upload forwards nothing; the peak is exact at the int16 extremes.
+
+    Feeds ten 8192-byte frames plus one frame holding -32768 and 32767, then cancels.
+
+    Verifies: the peak is 32768, the magnitude of -32768; nothing reaches the TV; the
+    result reports 0 forwarded and all 81924 received bytes.
+    """
     remote = Remote()
     session = VoiceSession(remote.open, Mock())
     await session.start()

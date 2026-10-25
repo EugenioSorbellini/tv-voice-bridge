@@ -1,3 +1,10 @@
+// Capture worklet (pcm-worklet.js), loaded with stubbed AudioWorklet globals.
+// Feeds 16 s of audio at 44.1 and 48 kHz with a 15 s cap, then a short recording at
+// 48 kHz that is released early.
+// Verifies: capture stops on its own at exactly 480000 bytes with one 'stopped' message
+// flagged as the limit; the bytes equal resampling the same 15 s in one pass; a partial
+// chunk stays buffered while recording; release flushes it and sends 'stopped'; nothing
+// is captured after release.
 import assert from 'node:assert/strict';
 import { PCMResampler } from '../custom_components/tv_voice_bridge/frontend/pcm.mjs';
 

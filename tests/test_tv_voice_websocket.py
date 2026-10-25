@@ -68,6 +68,15 @@ def frame(result, audio, sequence=0, token=None):
 
 @pytest.mark.asyncio
 async def test_binary_delivery_and_no_audio_in_json_debug_logs(hass_ws_client, bridge, caplog):
+    """Start, binary frame, progress and stop through HA's real WebSocket API.
+
+    With debug logging on, starts a session, sends 8192 bytes of PCM as one binary frame,
+    acknowledges it with progress and submits with stop.
+
+    Verifies: progress reports all bytes received; stop forwards exactly those bytes to
+    the TV in one chunk; the audio never appears in the logs, raw or base64, although HA
+    logged the JSON commands; no session record remains.
+    """
     caplog.set_level(logging.DEBUG)
     manager, entity, remotes = bridge
     client = await hass_ws_client()
@@ -96,6 +105,16 @@ async def test_binary_delivery_and_no_audio_in_json_debug_logs(hass_ws_client, b
 
 @pytest.mark.asyncio
 async def test_connection_isolation_busy_and_malformed_frames(hass_ws_client, bridge):
+    """Sessions are per connection, the TV is reserved, and an out-of-order frame ends the session.
+
+    Starts a session on one connection; from a second connection, tries to cancel it with
+    stop and to start another session; then sends a frame with sequence 3 where 0 was
+    expected.
+
+    Verifies: the other connection's stop fails and its start returns busy; the
+    out-of-order frame ends the session, so the next progress fails, no record remains
+    and the TV client is disconnected.
+    """
     manager, entity, remotes = bridge
     client = await hass_ws_client()
     other = await hass_ws_client()
@@ -120,6 +139,14 @@ async def test_connection_isolation_busy_and_malformed_frames(hass_ws_client, br
 
 @pytest.mark.asyncio
 async def test_permission_checked_on_binary_and_stop(hass_ws_client, bridge):
+    """TV-control permission is checked again on stop and on start.
+
+    Starts a session, then with permission revoked calls stop and tries to start another
+    session.
+
+    Verifies: both return unauthorized and the stopped session is removed. Despite the
+    name, no binary frame is sent while permission is revoked.
+    """
     manager, entity, _ = bridge
     client = await hass_ws_client()
     response = await call(client, type=DOMAIN + "/start", request_id="4" * 32)
@@ -138,6 +165,15 @@ async def test_permission_checked_on_binary_and_stop(hass_ws_client, bridge):
 
 @pytest.mark.asyncio
 async def test_cancel_pending_start_and_disconnect(hass_ws_client, bridge):
+    """Cancel works while start is still connecting, and disconnect cleans up.
+
+    Makes the TV connect hang, sends start, waits until connect is in progress and sends
+    cancel; then starts a new session and closes the WebSocket.
+
+    Verifies: the pending start fails with cancelled, no record remains and the client
+    is disconnected; a new start then succeeds; closing the WebSocket removes that
+    session.
+    """
     manager, entity, remotes = bridge
     client = await hass_ws_client()
     waiting = asyncio.Event()
@@ -165,6 +201,13 @@ async def test_cancel_pending_start_and_disconnect(hass_ws_client, bridge):
 
 @pytest.mark.asyncio
 async def test_real_schemas_reject_invalid_tokens_and_json_audio(hass_ws_client, bridge):
+    """HA's command schemas reject a bad request id and JSON audio; list returns the TV.
+
+    Sends start with request_id "bad", a JSON audio command, and list.
+
+    Verifies: start fails with invalid_format, the audio command with unknown_command,
+    and list returns the configured TV by name.
+    """
     client = await hass_ws_client()
     response = await call(client, type=DOMAIN + "/start", request_id="bad")
     assert response["error"]["code"] == "invalid_format"
@@ -182,6 +225,19 @@ async def test_real_schemas_reject_invalid_tokens_and_json_audio(hass_ws_client,
     "code", ["invalid_audio", "delivery_failed", "recording_limit", "session_timeout"]
 )
 async def test_terminal_errors_survive_cleanup_and_remain_owned(hass_ws_client, bridge, code):
+    """A failed session's error stays with its connection without holding resources.
+
+    Parametrized over four failures: invalid_audio (out-of-order frame), delivery_failed
+    (the TV rejects the chunk forwarded at stop), recording_limit (a frame past 480000
+    bytes) and session_timeout. Then calls progress and stop from the owning connection
+    and from another one.
+
+    Verifies: the owner gets the original code from both, the other connection gets
+    session_ended; no record, held audio or binary handler remains, and the TV client is
+    disconnected; the retained error still honours revoked permission (unauthorized); the
+    session object is garbage-collected; a new start succeeds, so the TV isn't reserved;
+    closing the WebSocket removes the retained error.
+    """
     manager, _, remotes = bridge
     client = await hass_ws_client()
     other = await hass_ws_client()
@@ -242,6 +298,15 @@ async def test_terminal_errors_survive_cleanup_and_remain_owned(hass_ws_client, 
 
 @pytest.mark.asyncio
 async def test_terminal_errors_expire_are_bounded_and_unload(hass_ws_client, bridge):
+    """Retained errors expire after 30 s, are capped, and are cleared on unload.
+
+    With the cap patched to 2, times out three sessions and advances time by 31 s; then
+    times out one more and unloads the entry.
+
+    Verifies: only the newest two errors are kept and the evicted one's timer is
+    cancelled; after 31 s none remain and progress returns session_ended; unload clears
+    the remaining error and cancels its timer.
+    """
     manager, _, _ = bridge
     client = await hass_ws_client()
     tokens = []
@@ -276,6 +341,16 @@ async def test_terminal_errors_expire_are_bounded_and_unload(hass_ws_client, bri
 async def test_stop_waits_for_transport_and_reserves_tv_until_closed(
     hass_ws_client, bridge, close_error
 ):
+    """Stop replies only after the TV connection closes; the TV stays reserved meanwhile.
+
+    Parametrized with a clean close and a connection reset. Sends stop, holds the TV
+    connection's close open and tries to start from another connection; then completes
+    the close.
+
+    Verifies: while closing, the session record is gone but the session is still owned
+    and the other start returns busy; the stop reply reports delivery_failed only for the
+    reset; afterwards no session remains and the other connection can start.
+    """
     manager, _, remotes = bridge
     client = await hass_ws_client()
     other = await hass_ws_client()
@@ -316,6 +391,14 @@ async def test_stop_waits_for_transport_and_reserves_tv_until_closed(
 async def test_tv_voice_close_removes_binary_handler_and_returns_owned_error(
     hass_ws_client, bridge
 ):
+    """A TV close ends the session; both connections then get session_ended.
+
+    Feeds 100 bytes into a session and triggers the TV's close, then calls stop from the
+    owner and from another connection.
+
+    Verifies: the record and held audio are removed and the binary handler is
+    unregistered; stop returns session_ended on both connections.
+    """
     manager, _, _ = bridge
     client = await hass_ws_client()
     other = await hass_ws_client()

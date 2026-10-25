@@ -1,3 +1,10 @@
+// PCM resampler (pcm.mjs) used by the capture worklet.
+// Resamples one second of a sine wave from 16, 44.1 and 48 kHz to 8 and 16 kHz, both in
+// one call and in 127-sample pieces; then converts out-of-range and NaN samples.
+// Verifies: one second always yields exactly one second of 16-bit output; the piecewise
+// output is byte-identical to the one-call output, so no samples are lost or repeated at
+// buffer boundaries; -2 and 2 clip to -32768 and 32767 and NaN becomes 0, in
+// little-endian order; a zero input rate is rejected.
 import assert from 'node:assert/strict';
 import { PCMResampler } from '../custom_components/tv_voice_bridge/frontend/pcm.mjs';
 

@@ -1,5 +1,10 @@
-// Onboards a throwaway Home Assistant, then checks on repeated dashboard loads that HA's own
-// card helper creates tv-voice-card. Loading races vary between page loads, so one pass is not enough.
+// Browser check against a real Home Assistant container, run weekly on stable and beta.
+// Waits for HA to start, onboards a throwaway user, waits until the HA page references
+// the card module, then creates a dashboard holding a custom:tv-voice-card and opens it
+// five times in Chromium. Loading races vary between page loads, so one pass isn't enough.
+// Verifies on each load: HA's own card helper renders tv-voice-card with a shadow root,
+// stylingVersion 1 and its editor defined, and no error card remains after up to 20 s.
+// On failure it saves a screenshot and logs the page's panel and card elements.
 // Usage: node tools/frontend_smoke.mjs http://localhost:8123
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
