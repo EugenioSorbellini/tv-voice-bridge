@@ -12,7 +12,6 @@ from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
-from custom_components.tv_voice_bridge.client import TvVoiceClient
 from custom_components.tv_voice_bridge.const import DOMAIN
 from custom_components.tv_voice_bridge.manager import BridgeManager
 from custom_components.tv_voice_bridge.websocket import async_register
@@ -45,7 +44,8 @@ async def bridge(hass):
         return remote
 
     with (
-        patch("custom_components.tv_voice_bridge.manager.TvVoiceClient", side_effect=make_remote),
+        # A plain function, unlike a Mock, does not retain the session's callback.
+        patch("custom_components.tv_voice_bridge.manager.TvVoiceClient", new=make_remote),
         patch("custom_components.tv_voice_bridge.session.VOICE_READY_DELAY", 0),
     ):
         yield manager, entity.entity_id, remotes
@@ -228,7 +228,6 @@ async def test_terminal_errors_survive_cleanup_and_remain_owned(hass_ws_client, 
     # Retained errors do not reserve the TV or keep the session alive.
     reference = weakref.ref(record.session)
     del record
-    remotes.clear()  # The client holds the session's close callback; only tests keep clients.
     await manager.hass.async_block_till_done()
     import gc
 
@@ -285,9 +284,11 @@ async def test_stop_waits_for_transport_and_reserves_tv_until_closed(
     completed = manager.hass.loop.create_future()
     closing = asyncio.Event()
     remote = remotes[0]
-    remote.closed = completed
-    remote.transport = Mock()
-    remote.wait_closed = lambda: TvVoiceClient.wait_closed(remote)
+
+    async def wait_closed():
+        return await completed is None
+
+    remote.wait_closed = wait_closed
 
     def disconnect():
         closing.set()

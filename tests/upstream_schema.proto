@@ -1,0 +1,81 @@
+// Test-only reference: the androidtvremote2 0.3.2 wire layout for the fields
+// the bridge uses, written from its field numbers. It keeps upstream's shape
+// (proto3, one message for both directions, field 31 as a nested
+// session/samples message) so tests check voice.proto against an independent
+// schema that does not change when Home Assistant updates the library.
+// Regenerate with the command in docs/protocol.md, using this path.
+syntax = "proto3";
+package tv_voice_bridge_test_upstream;
+
+message RemoteDeviceInfo {
+  string model = 1;
+  string vendor = 2;
+  int32 unknown1 = 3;
+  string unknown2 = 4;
+  string package_name = 5;
+  string app_version = 6;
+}
+
+message RemoteConfigure {
+  int32 code1 = 1;
+  RemoteDeviceInfo device_info = 2;
+}
+
+message RemoteSetActive {
+  int32 active = 1;
+}
+
+message RemoteError {
+  bool value = 1;
+  RemoteMessage message = 2;
+}
+
+message RemotePingRequest {
+  int32 val1 = 1;
+  int32 val2 = 2;
+}
+
+message RemotePingResponse {
+  int32 val1 = 1;
+}
+
+message RemoteKeyInject {
+  int32 key_code = 1;  // RemoteKeyCode enum on the wire
+  int32 direction = 2;  // RemoteDirection enum on the wire
+}
+
+message RemoteVoiceBegin {
+  int32 session_id = 1;
+  string package_name = 2;
+}
+
+message RemoteVoicePayload {
+  int32 session_id = 1;
+  bytes samples = 2;
+}
+
+message RemoteVoiceEnd {
+  int32 session_id = 1;
+}
+
+message RemoteStart {
+  bool started = 1;
+}
+
+// Test helper, not upstream: a varint through protobuf's public API.
+message Varint {
+  uint64 value = 1;
+}
+
+message RemoteMessage {
+  RemoteConfigure remote_configure = 1;
+  RemoteSetActive remote_set_active = 2;
+  RemoteError remote_error = 3;
+  RemotePingRequest remote_ping_request = 8;
+  RemotePingResponse remote_ping_response = 9;
+  RemoteKeyInject remote_key_inject = 10;
+  RemoteVoiceBegin remote_voice_begin = 30;
+  RemoteVoicePayload remote_voice_payload = 31;
+  RemoteVoiceEnd remote_voice_end = 32;
+  RemoteStart remote_start = 40;
+}

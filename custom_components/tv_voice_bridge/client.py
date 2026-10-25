@@ -30,10 +30,25 @@ MAX_MESSAGE_BYTES = 1 << 20
 KEYCODE_SEARCH = 84
 DIRECTION_SHORT = 3
 
+# Remote Service feature flags, as androidtvremote2 0.3.2 names them.
+FEATURE_PING = 1 << 0
+FEATURE_KEY = 1 << 1
+FEATURE_IME = 1 << 2
 FEATURE_VOICE = 1 << 3
-# Announce exactly what androidtvremote2 did in the live-validated setup
-# (PING, KEY, IME, VOICE, POWER, VOLUME, APP_LINK); unused traffic is ignored.
-FEATURES = 0b1001101111
+FEATURE_POWER = 1 << 5
+FEATURE_VOLUME = 1 << 6
+FEATURE_APP_LINK = 1 << 9
+# Announce exactly what androidtvremote2 did in the live-validated setup;
+# traffic for features the bridge does not use is ignored.
+FEATURES = (
+    FEATURE_PING
+    | FEATURE_KEY
+    | FEATURE_IME
+    | FEATURE_VOICE
+    | FEATURE_POWER
+    | FEATURE_VOLUME
+    | FEATURE_APP_LINK
+)
 
 # ClientVoiceBegin values, as validated in docs/voice-protocol-research.md.
 CHANNEL_IN_MONO = 16
@@ -64,6 +79,10 @@ def decode_varint(data: bytes | bytearray) -> tuple[int, int]:
             raise ValueError("varint too long")
 
 
+def _ignore() -> None:
+    pass
+
+
 def load_ssl_context(certfile: str, keyfile: str) -> ssl.SSLContext:
     """Blocking; run in an executor. The TV's self-signed certificate is not verified."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -82,7 +101,7 @@ class VoiceStream:
         self._ended = False
 
     def send_chunk(self, chunk: bytes) -> bool:
-        if self._ended or self._client.voice_closed:
+        if self._ended or self._client.voice_closed_by_tv:
             return False
         # Raw PCM in field 31; never logged.
         self._client.send(ClientMessage(voice_audio=chunk))
@@ -92,8 +111,7 @@ class VoiceStream:
         if self._ended:
             return
         self._ended = True
-        if not self._client.voice_closed:
-            self._client.voice_closed = True
+        if not self._client.voice_closed_by_tv:  # The TV already ended it.
             message = ClientMessage()
             message.voice_end.session_id = self.session_id
             self._client.send(message)
@@ -108,6 +126,8 @@ class TvVoiceClient(asyncio.Protocol):
         certfile: str,
         keyfile: str,
         loop: asyncio.AbstractEventLoop,
+        *,
+        on_voice_close: Callable[[], None] = _ignore,
         port: int = API_PORT,
     ) -> None:
         self.host = host
@@ -116,9 +136,7 @@ class TvVoiceClient(asyncio.Protocol):
         self._keyfile = keyfile
         self._loop = loop
         # Called once when the TV closes the active voice session.
-        self.on_voice_close: Callable[[], None] = lambda: None
-        # Diagnostics only: top-level field numbers of each handled TV message.
-        self.on_message: Callable[[frozenset[int]], None] = lambda fields: None
+        self._on_voice_close = on_voice_close
         self.transport: asyncio.Transport | None = None
         self.closed: asyncio.Future[Exception | None] = loop.create_future()
         self._started: asyncio.Future[None] = loop.create_future()
@@ -126,9 +144,8 @@ class TvVoiceClient(asyncio.Protocol):
         self._buffer = bytearray()
         self._idle: asyncio.TimerHandle | None = None
         self.features = 0
-        self.device_info: dict[str, str] = {}
         self.session_id: int | None = None
-        self.voice_closed = False
+        self.voice_closed_by_tv = False
 
     @property
     def is_voice_enabled(self) -> bool:
@@ -170,7 +187,7 @@ class TvVoiceClient(asyncio.Protocol):
             self.session_id = session_id
         finally:
             self._voice_offer = None
-        if self.voice_closed:
+        if self.voice_closed_by_tv:
             # The TV withdrew the offer in the same read that carried it.
             raise VoiceError("session_ended")
         begin = ClientMessage()
@@ -223,6 +240,8 @@ class TvVoiceClient(asyncio.Protocol):
 
     def connection_lost(self, exc: Exception | None) -> None:
         self._cancel_idle()
+        # Release the owner's callback: nothing can close voice after this.
+        self._on_voice_close = _ignore
         if not self.closed.done():
             self.closed.set_result(exc)
 
@@ -252,7 +271,6 @@ class TvVoiceClient(asyncio.Protocol):
                 _LOGGER.debug("Ignoring malformed message from TV")
                 continue
             self._handle(message)
-            self.on_message(frozenset(field.number for field, _ in message.ListFields()))
 
     def _handle(self, message: ServerMessage) -> None:
         if message.HasField("ping_request"):
@@ -260,13 +278,7 @@ class TvVoiceClient(asyncio.Protocol):
             reply.ping_response.val1 = message.ping_request.val1
             self._reply(reply)
         elif message.HasField("configure"):
-            configure = message.configure
-            self.features = FEATURES & configure.features
-            self.device_info = {
-                "manufacturer": configure.device_info.vendor,
-                "model": configure.device_info.model,
-                "sw_version": configure.device_info.app_version,
-            }
+            self.features = FEATURES & message.configure.features
             reply = ClientMessage()
             reply.configure.features = self.features
             # Same client identity androidtvremote2 announces.
@@ -295,10 +307,10 @@ class TvVoiceClient(asyncio.Protocol):
             if (
                 close.HasField("session_id")
                 and close.session_id == self.session_id
-                and not self.voice_closed
+                and not self.voice_closed_by_tv
             ):
-                self.voice_closed = True
-                self.on_voice_close()
+                self.voice_closed_by_tv = True
+                self._on_voice_close()
         elif message.HasField("error"):
             _LOGGER.warning("TV reported a remote protocol error")
 

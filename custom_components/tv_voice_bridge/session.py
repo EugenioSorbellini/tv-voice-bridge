@@ -22,19 +22,21 @@ from .const import (
 )
 from .errors import VoiceError
 
+# Creates the session's own client, given the callback for a TV voice-close.
+ClientFactory = Callable[[Callable[[], None]], TvVoiceClient]
+
 
 class VoiceSession:
     """Own every task and transport, including late startup and graceful close."""
 
     def __init__(
         self,
-        remote: TvVoiceClient,
+        open_client: ClientFactory,
         on_close: Callable[[], None],
         loop: asyncio.AbstractEventLoop | None = None,
         on_disconnect: Callable[[], None] = lambda: None,
     ) -> None:
-        self.remote = remote
-        remote.on_voice_close = self._tv_closed
+        self.remote = open_client(self._tv_closed)
         self.on_close = on_close
         self.on_disconnect = on_disconnect
         self.loop = loop or asyncio.get_running_loop()
@@ -49,7 +51,7 @@ class VoiceSession:
         self.timer: asyncio.TimerHandle | None = None
         self._lifetime: asyncio.TimerHandle | None = None
         self._close_tasks: set[asyncio.Task[None]] = set()
-        self._closing_connections: set[asyncio.Future[Exception | None]] = set()
+        self._close_watched = False
         self._start_task: asyncio.Task[None] | None = None
         self._disconnected = False
 
@@ -172,8 +174,8 @@ class VoiceSession:
 
     def _disconnect(self) -> None:
         # Always repeat transport cleanup: startup may complete after cancellation.
-        if self.remote.disconnect() and self.remote.closed not in self._closing_connections:
-            self._closing_connections.add(self.remote.closed)
+        if self.remote.disconnect() and not self._close_watched:
+            self._close_watched = True
             task = self.loop.create_task(self._wait_for_disconnect())
             self._close_tasks.add(task)
             task.add_done_callback(self._close_done)

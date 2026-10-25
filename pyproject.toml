@@ -15,7 +15,7 @@ timeout = 30
 [tool.ruff]
 target-version = "py314"
 line-length = 100
-extend-exclude = ["voice_pb2.py", "voice_pb2.pyi"]
+extend-exclude = ["*_pb2.py", "*_pb2.pyi"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]

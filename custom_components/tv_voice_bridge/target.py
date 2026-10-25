@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONF_HOST
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import STORAGE_DIR
 
@@ -50,13 +51,13 @@ def resolve_target(
     ):
         raise VoiceError("invalid_target")
     entry = hass.config_entries.async_get_entry(item.config_entry_id)
-    if entry is None or not entry.data.get("host"):
+    if entry is None or not entry.data.get(CONF_HOST):
         raise VoiceError("invalid_target")
     # Must match core's androidtv_remote helpers.create_api; a test compares them.
     return Target(
         item.entity_id,
         entry.entry_id,
-        entry.data["host"],
+        entry.data[CONF_HOST],
         hass.config.path(STORAGE_DIR, "androidtv_remote_cert.pem"),
         hass.config.path(STORAGE_DIR, "androidtv_remote_key.pem"),
     )

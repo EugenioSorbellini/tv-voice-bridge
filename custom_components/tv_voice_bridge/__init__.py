@@ -35,16 +35,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         target = await validate_target(
-            hass, entry.data[CONF_REMOTE_ENTITY], entry.data.get(CONF_ANDROIDTV_ENTRY_ID)
+            hass, entry.data[CONF_REMOTE_ENTITY], entry.data[CONF_ANDROIDTV_ENTRY_ID]
         )
     except VoiceError as error:
         exception = ConfigEntryNotReady if error.code == "pairing_required" else ConfigEntryError
         raise exception(translation_domain=DOMAIN, translation_key=error.code) from error
     manager: BridgeManager = hass.data[DOMAIN]
-    manager.targets[entry.entry_id] = (
-        target.entity_id,
-        entry.data.get(CONF_ANDROIDTV_ENTRY_ID, target.source_entry_id),
-    )
+    manager.targets[entry.entry_id] = (target.entity_id, target.source_entry_id)
     entry.runtime_data = manager
     entry.async_on_unload(entry.add_update_listener(_async_update))
     return True

@@ -3,10 +3,16 @@
 ## Unreleased
 
 - Replace the androidtvremote2 voice adapter with the bridge's own voice-only client (`client.py`). It opens the TLS connection with the core Android TV Remote pairing, answers the handshake and pings as androidtvremote2 0.3.2 does, and sends the validated voice messages. `voice.proto` now defines every message the client exchanges, one schema per direction. Nothing replaces or reads library internals any more, so a Home Assistant release that changes androidtvremote2 no longer disables voice, and the `unsupported_version` gate and `protocol.py` are gone. Pairing still comes from the core integration.
-- Diagnostics no longer report `library_version`.
-- Protocol lab: the `current` case runs the production client and no longer needs androidtvremote2; the comparison cases still do.
+- Regenerate `voice_pb2` with protoc 35.1 (grpcio-tools 1.84.1) for protobuf 7, matching Home Assistant's runtime. The generated code now checks the runtime version at import, so an incompatible protobuf fails clearly instead of silently relying on old generated code.
+- The voice session creates and owns its TV client, passing its voice-close callback at construction; the client releases it when its connection closes.
+- Diagnostics no longer report `library_version`, and the unreachable `unsupported_version` server translations are removed.
+- Tests no longer import androidtvremote2 or protobuf internals, and the development requirements no longer pin androidtvremote2: CI installs the version Home Assistant's core integration declares.
+- Remove the pre-1.0 dashboard resource migration and the `lovelace` after-dependency. The card loads through `add_extra_js_url` only; delete any manually added `/tv_voice_bridge/frontend/.../tv-voice-card.js` dashboard resource before upgrading, since it points at an old versioned URL.
+- Config entries must store the source Android TV Remote entry id, as every entry since 1.0.0 does; the fallback for entries without it is removed.
+- The card no longer rejects a `remote:` key with a dedicated message; unknown keys are ignored.
+- Protocol lab: runs only the production client. The androidtvremote2 0.3.2 comparison cases are removed; their results remain in `docs/voice-protocol-research.md`.
 
-Validated with 66 Python tests (91% statement coverage including the generated module), Ruff and mypy, checked against the upstream 0.3.2 schema. Live on 2026-10-25 on the tested TCL, now running Remote Service 7.00.999235495, through Home Assistant 2026.10.3: the client completed TLS 1.3 and the handshake with the existing core pairing, and a 2.7 s Italian TTS phrase sent through the WebSocket start/frames/stop path was forwarded in full (86,272 bytes, no delivery failure) and recognized on screen (the weather query was answered). Start took 1.3 s including the 1 s readiness delay. Other devices remain unverified.
+Validated with 64 Python tests (91% statement coverage including the generated module), Ruff and mypy; the wire format is checked against a fixed copy of the upstream 0.3.2 schema. Live on 2026-10-25 on the tested TCL, now running Remote Service 7.00.999235495, through Home Assistant 2026.10.3: the client completed TLS 1.3 and the handshake with the existing core pairing, and a 2.7 s Italian TTS phrase sent through the WebSocket start/frames/stop path was forwarded in full (86,272 bytes, no delivery failure) and recognized on screen (the weather query was answered). Start took 1.3 s including the 1 s readiness delay. That live run predates the session-ownership change and the protobuf 7 regeneration, which are covered by the automated tests only. Other devices remain unverified.
 
 ## 1.2.2 — 2026-10-24
 

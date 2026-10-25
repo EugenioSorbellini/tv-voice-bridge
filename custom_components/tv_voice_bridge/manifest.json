@@ -1,9 +1,6 @@
 {
   "domain": "tv_voice_bridge",
   "name": "TV Voice Bridge",
-  "after_dependencies": [
-    "lovelace"
-  ],
   "codeowners": [
     "@EugenioSorbellini"
   ],

@@ -70,6 +70,7 @@ Use Python 3.14.2+ and Node 22+:
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements-dev.txt
+pip install $(python tools/ha_requirements.py androidtv_remote)
 pytest
 ruff check custom_components tests tools
 ruff format --check custom_components tests tools
@@ -79,7 +80,7 @@ npm test
 python tools/check_release.py
 ```
 
-The pinned development requirements reproduce the minimum supported Home Assistant release and its matching official test-fixture plugin. Tests use a real HA WebSocket server, schemas, config flows and entity registry while mocking TV transport. They cover cancellation races, permissions, binary payload privacy under debug logging, deadlines, the full buffer, the client's wire format checked against the upstream schema, bundled frontend registration, translations, worklet limits and accessibility. Browser smoke tests are documented in `tests/browser/README.md`.
+The pinned development requirements reproduce the minimum supported Home Assistant release and its matching official test-fixture plugin. Tests use a real HA WebSocket server, schemas, config flows and entity registry while mocking TV transport. They cover cancellation races, permissions, binary payload privacy under debug logging, deadlines, the full buffer, the client's wire format checked against a fixed copy of the upstream schema, bundled frontend registration, translations, worklet limits and accessibility. Browser smoke tests are documented in `tests/browser/README.md`.
 
 Release checks and hardware acceptance are summarized per version in the [Changelog](CHANGELOG.md). The [voice protocol research](docs/voice-protocol-research.md) records the live TV trials behind the voice wire format and its timing, and how to run the protocol lab.
 

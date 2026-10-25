@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: '22'
       - run: pip install -r requirements-dev.txt
+      # The core Android TV Remote integration's library, at the version HA pins.
+      - run: pip install $(python tools/ha_requirements.py androidtv_remote)
       - run: ruff check custom_components tests tools
       - run: ruff format --check custom_components tests tools
       - run: mypy custom_components/tv_voice_bridge

@@ -147,7 +147,6 @@ class BridgeManager:
             raise VoiceError("invalid_request")
         token = secrets.token_hex(16)
         subscription = "tv_voice_bridge:" + token
-        remote = TvVoiceClient(target.host, target.certfile, target.keyfile, self.hass.loop)
 
         def release() -> None:
             self.records.pop(token, None)
@@ -161,7 +160,16 @@ class BridgeManager:
         def disconnected() -> None:
             self.sessions.pop(session, None)
 
-        session = VoiceSession(remote, release, self.hass.loop, on_disconnect=disconnected)
+        def open_client(on_voice_close: Callable[[], None]) -> TvVoiceClient:
+            return TvVoiceClient(
+                target.host,
+                target.certfile,
+                target.keyfile,
+                self.hass.loop,
+                on_voice_close=on_voice_close,
+            )
+
+        session = VoiceSession(open_client, release, self.hass.loop, on_disconnect=disconnected)
         record = SessionRecord(connection, entry_id, target, token, request_id, session)
         self.records[token] = record
         self.sessions[session] = entry_id

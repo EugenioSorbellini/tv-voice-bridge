@@ -207,15 +207,15 @@ format fallbacks keyed on branding.
 ## Running the protocol lab
 
 `tools/protocol_lab.py` prints an offline plan unless passed `--execute`. It has no
-scanner, microphone capture, pairing flow or Home Assistant import. The `current`
-case runs the production client and needs no extra package. The comparison cases
-need `androidtvremote2==0.3.2`: `upstream` leaves the library unchanged and the
-others are isolated experimental encodings. Trials before the client replaced the
-adapter ran `current` through androidtvremote2 with the old adapter. Run one live trial at a time, with the TV owner's agreement, because it
-opens the assistant on screen:
+scanner, microphone capture, pairing flow or Home Assistant import. It runs the
+production client and needs no extra package. The other rows of the wire format
+table ran as lab cases through androidtvremote2 0.3.2; they were removed once the
+client replaced that library and remain in Git history. Trials before then ran `current` through
+androidtvremote2 with the old adapter. Run one live trial at a time, with the TV
+owner's agreement, because it opens the assistant on screen:
 
 ```sh
-python tools/protocol_lab.py --case current --wav FIXTURE_16K.wav \
+python tools/protocol_lab.py --wav FIXTURE_16K.wav \
   --host TV_HOST --cert PAIRED_CERT --key PAIRED_KEY \
   --startup delay --ready-delay 1 --processing-grace 8 --execute
 ```

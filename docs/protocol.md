@@ -25,14 +25,14 @@ After a binary failure or session timeout, the server retains only failure metad
 
 A TV close drops all held audio and unregisters the binary upload handler. The owning client's next progress/stop request receives `session_ended`; the bundled card, which streams while recording, then stops capture with that error. This protocol version does not push a microphone-stop event.
 
-Its handshake, ping and key messages follow upstream's `remotemessage.proto` field numbers; fields the bridge does not use are left out and skipped on parse. The only hand-written encoding is the varint length before each message, because protobuf's Python package has no public length-delimited API. Tests check the client's output against the upstream 0.3.2 schema and hand-built bytes.
+Its handshake, ping and key messages follow upstream's `remotemessage.proto` field numbers; fields the bridge does not use are left out and skipped on parse. The only hand-written encoding is the varint length before each message, because protobuf's Python package has no public length-delimited API. Tests check the client's output against `tests/upstream_schema.proto`, a fixed test-only copy of the androidtvremote2 0.3.2 wire layout for these fields, and hand-built bytes, so they do not depend on the library version Home Assistant installs.
 
 The generated Python module and type stub are checked in. Regenerate them from the repository root in a separate compiler environment (the compiler is not a runtime dependency):
 
 ```sh
-python3.12 -m venv /tmp/tv-voice-protoc
-/tmp/tv-voice-protoc/bin/pip install grpcio-tools==1.60.2 setuptools==80.9.0
+python3.14 -m venv /tmp/tv-voice-protoc
+/tmp/tv-voice-protoc/bin/pip install grpcio-tools==1.84.1
 /tmp/tv-voice-protoc/bin/python -m grpc_tools.protoc -I. --python_out=. --pyi_out=. custom_components/tv_voice_bridge/voice.proto
 ```
 
-Generated files are excluded from Ruff formatting to preserve reproducibility. This compiler generates descriptor-based code that works with Home Assistant's protobuf runtime (7.36 at the time of writing) without adding a runtime-version gate; newer compilers add one that could fail on a future major protobuf upgrade. Home Assistant supplies the protobuf runtime.
+Generated files are excluded from Ruff formatting to preserve reproducibility. Home Assistant supplies the protobuf runtime. grpcio-tools 1.84.1 bundles protoc 35.1, so the code declares protobuf 7.35.1 and checks the runtime at import: a runtime older than 7.35.1 refuses to load it, and whether a future major runtime accepts it is decided by that runtime. Keep the generated version at or below the protobuf that the minimum supported Home Assistant pins (7.36.2 for 2026.10.2). When Home Assistant moves to a new protobuf major, regenerate with a matching compiler; the weekly compatibility workflow imports the module against HA beta first.

@@ -21,6 +21,11 @@ class Remote:
         )
         self.start_voice = AsyncMock(return_value=self.stream)
 
+    def open(self, on_voice_close):
+        """ClientFactory: the session creates its client through this."""
+        self.on_voice_close = on_voice_close
+        return self
+
     async def async_connect(self):
         self.connected = True
 
@@ -51,7 +56,7 @@ async def test_late_connect_after_cancellation_is_disconnected():
 
     remote.async_connect = stubborn_connect
     release = Mock()
-    session = VoiceSession(remote, release)
+    session = VoiceSession(remote.open, release)
     task = asyncio.create_task(session.start())
     await started.wait()
     session.close()
@@ -69,7 +74,7 @@ async def test_late_connect_after_cancellation_is_disconnected():
 @pytest.mark.asyncio
 async def test_recording_and_upload_have_separate_deadlines():
     remote = Remote()
-    session = VoiceSession(remote, Mock())
+    session = VoiceSession(remote.open, Mock())
     await session.start()
     first = session.timer
     assert first.when() - session.loop.time() > 29
@@ -93,7 +98,7 @@ async def test_recording_and_upload_have_separate_deadlines():
 @pytest.mark.asyncio
 async def test_byte_limit_and_idle_expiry():
     remote = Remote()
-    session = VoiceSession(remote, Mock())
+    session = VoiceSession(remote.open, Mock())
     await session.start()
     for _ in range(29):
         session.feed(bytes(16384))
@@ -102,7 +107,7 @@ async def test_byte_limit_and_idle_expiry():
     assert session.closed
     assert session.error == "recording_limit"
     await session.shutdown()
-    session2 = VoiceSession(Remote(), Mock())
+    session2 = VoiceSession(Remote().open, Mock())
     await session2.start()
     session2._expire()
     assert session2.closed and session2.error == "session_timeout"
@@ -112,14 +117,14 @@ async def test_byte_limit_and_idle_expiry():
 @pytest.mark.asyncio
 async def test_cancel_drops_tail_and_final_failure_is_reported():
     remote = Remote()
-    session = VoiceSession(remote, Mock())
+    session = VoiceSession(remote.open, Mock())
     await session.start()
     session.feed(bytes(100))
     session.close()
     assert not remote.chunks
     await session.shutdown()
     remote = Remote()
-    session = VoiceSession(remote, Mock())
+    session = VoiceSession(remote.open, Mock())
     await session.start()
     session.feed(bytes(100))
     remote.stream.send_chunk.return_value = False
@@ -131,7 +136,7 @@ async def test_cancel_drops_tail_and_final_failure_is_reported():
 @pytest.mark.asyncio
 async def test_cancel_after_streaming_forwards_nothing_and_peak_is_exact():
     remote = Remote()
-    session = VoiceSession(remote, Mock())
+    session = VoiceSession(remote.open, Mock())
     await session.start()
     for _ in range(10):
         session.feed(bytes(8192))

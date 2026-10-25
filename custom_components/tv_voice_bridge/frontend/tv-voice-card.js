@@ -106,7 +106,6 @@ export class TVVoiceCard extends HTMLElement {
   static getStubConfig() { return { type: 'custom:tv-voice-card', activation: 'hold' }; }
   static get stylingVersion() { return 1; }
   setConfig(config) {
-    if (config && 'remote' in config) throw Object.assign(coded('invalid_config'), { message: this._t('errors.invalid_config') });
     if (!config || (config.entity && !/^remote\.[a-z0-9_]+$/.test(config.entity)) ||
         (config.activation && !['hold', 'toggle'].includes(config.activation))) throw Object.assign(coded('invalid_target'), { message: this._t('errors.invalid_target') });
     if (this._state !== 'idle') this._stop(true);

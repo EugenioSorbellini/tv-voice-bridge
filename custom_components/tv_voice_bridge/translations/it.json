@@ -19,7 +19,6 @@
       "invalid_target": "Seleziona un telecomando Android TV configurato.",
       "pairing_required": "Associa prima la TV con l’integrazione Android TV Remote.",
       "pairing_not_found": "L’integrazione Android TV Remote è connessa, ma TV Voice Bridge non trova i suoi file di associazione. Aggiorna TV Voice Bridge.",
-      "unsupported_version": "Questa versione di Home Assistant o della libreria non è supportata da TV Voice Bridge.",
       "different_target": "Aggiungi una voce di integrazione separata per un’altra TV."
     },
     "abort": {
@@ -40,7 +39,6 @@
       "invalid_target": "Seleziona un telecomando Android TV configurato.",
       "pairing_required": "Associa prima la TV con l’integrazione Android TV Remote.",
       "pairing_not_found": "L’integrazione Android TV Remote è connessa, ma TV Voice Bridge non trova i suoi file di associazione. Aggiorna TV Voice Bridge.",
-      "unsupported_version": "Questa versione di Home Assistant o della libreria non è supportata da TV Voice Bridge.",
       "different_target": "Aggiungi una voce di integrazione separata per un’altra TV."
     }
   },
@@ -80,9 +78,6 @@
     },
     "voice_unsupported": {
       "message": "Questa TV non dichiara il supporto voce."
-    },
-    "unsupported_version": {
-      "message": "Questa versione di Home Assistant o della libreria non è supportata da TV Voice Bridge."
     },
     "pairing_required": {
       "message": "Associa prima la TV con l’integrazione Android TV Remote."

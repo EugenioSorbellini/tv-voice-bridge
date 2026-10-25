@@ -59,7 +59,6 @@ assert.equal(Card.stylingVersion, 1);
   card.setConfig({});
   assert.equal(card['data-state'], 'idle');
   assert.equal(card._status.part, 'status hint');
-  assert.throws(() => card.setConfig({ remote: { remote_id: 'remote.other_tv' } }), { code: 'invalid_config' });
 }
 let media;
 function makeMedia() {

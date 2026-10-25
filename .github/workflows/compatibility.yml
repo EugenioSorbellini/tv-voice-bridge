@@ -27,7 +27,8 @@ jobs:
         run: |
           python - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           from importlib.metadata import version
-          print(f"**{version('homeassistant')}**")
+          # Informational: the core Android TV Remote integration's library, not the bridge's.
+          print(f"**{version('homeassistant')}**: core androidtvremote2 {version('androidtvremote2')}")
           EOF
       - run: pytest
 

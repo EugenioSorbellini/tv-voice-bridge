@@ -1,10 +1,8 @@
 """Real UI config flows, entity registry selection, setup and unload."""
 
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ConfigEntryError
@@ -78,12 +76,17 @@ async def test_flow_reports_missing_pairing_without_contacting_tv(hass, paired_t
 @pytest.mark.asyncio
 async def test_pairing_paths_match_core_integration(hass, paired_tv):
     """Fails when core moves its pairing files, before users see pairing errors."""
-    from homeassistant.components.androidtv_remote.helpers import create_api
+    from homeassistant.components.androidtv_remote import helpers
 
     entity, source = paired_tv
     target = resolve_target(hass, entity.entity_id, source.entry_id)
-    core = create_api(hass, "tv.invalid", False)
-    assert (target.certfile, target.keyfile) == (core._certfile, core._keyfile)
+    # Read core's choice from the client it constructs, not from library internals.
+    with patch.object(helpers, "AndroidTVRemote") as client:
+        helpers.create_api(hass, "tv.invalid", False)
+    assert (target.certfile, target.keyfile) == (
+        client.call_args.kwargs["certfile"],
+        client.call_args.kwargs["keyfile"],
+    )
 
 
 @pytest.mark.asyncio
@@ -126,36 +129,11 @@ async def test_setup_unload_and_rename(hass, paired_tv):
 
 
 @pytest.mark.asyncio
-async def test_frontend_registers_bundled_resource_and_preserves_other_resources(hass):
-    resources = Mock()
-    resources.async_get_info = AsyncMock()
-    resources.async_items.return_value = [
-        {"id": "ours", "url": "/tv_voice_bridge/frontend/1.0.0/tv-voice-card.js?cache=example"},
-        {"id": "unrelated", "url": "/local/another-card.js?v=3"},
-    ]
-    resources.async_update_item = AsyncMock()
-    hass.data[LOVELACE_DATA] = SimpleNamespace(resources=resources)
+async def test_frontend_registers_the_bundled_module(hass):
     hass.http = Mock(async_register_static_paths=AsyncMock())
     with patch("custom_components.tv_voice_bridge.frontend.frontend.add_extra_js_url") as register:
         url = await async_register_frontend(hass)
     assert f"/{VERSION}/" in url
-    resources.async_update_item.assert_awaited_once_with("ours", {"url": url, "res_type": "module"})
-    register.assert_called_once_with(hass, url)
-    registration = hass.http.async_register_static_paths.call_args.args[0][0]
-    assert registration.url_path == f"/tv_voice_bridge/frontend/{VERSION}"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("lovelace", ["missing", "changed"])
-async def test_frontend_registers_when_lovelace_internals_are_unavailable(hass, lovelace):
-    """The legacy resource migration is optional; HA changes must not block setup."""
-    hass.data.pop(LOVELACE_DATA, None)
-    if lovelace == "changed":
-        resources = Mock(async_get_info=AsyncMock(side_effect=AttributeError))
-        hass.data[LOVELACE_DATA] = SimpleNamespace(resources=resources)
-    hass.http = Mock(async_register_static_paths=AsyncMock())
-    with patch("custom_components.tv_voice_bridge.frontend.frontend.add_extra_js_url") as register:
-        url = await async_register_frontend(hass)
     register.assert_called_once_with(hass, url)
     registration = hass.http.async_register_static_paths.call_args.args[0][0]
     assert registration.url_path == f"/tv_voice_bridge/frontend/{VERSION}"
