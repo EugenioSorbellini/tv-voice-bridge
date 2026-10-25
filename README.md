@@ -15,7 +15,9 @@ Nothing reaches the TV until you release, so you can still cancel: press Escape 
 
 ## Installation
 
-1. In HACS, add `https://github.com/EugenioSorbellini/tv-voice-bridge` as a custom repository (category **Integration**), download **TV Voice Bridge** and restart Home Assistant.
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=EugenioSorbellini&repository=tv-voice-bridge&category=integration)
+
+1. Click the button above, or in HACS add `https://github.com/EugenioSorbellini/tv-voice-bridge` as a custom repository (category **Integration**). Then download **TV Voice Bridge** and restart Home Assistant.
 2. Go to **Settings → Devices & services → Add integration → TV Voice Bridge** and pick your TV. Repeat for each TV.
 3. Add the **TV Voice Bridge** card to a dashboard.
 

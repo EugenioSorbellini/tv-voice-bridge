@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.3.1 — 2026-10-25
 
+- README: a My Home Assistant button opens the repository in HACS in one click.
 - Shorter README focused on installing and using the card, with dashboard examples; development notes move to `docs/development.md`.
 - CI publishes Python test coverage on every push to main: a README badge, a job summary and an HTML report on the `python-coverage-comment-action-data` branch.
 - Tests: every CI test describes what it does and verifies. New tests cover the session timers firing on their own, the connect and voice-start limits, TVs without voice, malformed and unauthorized audio frames, start without an entity when several TVs exist, and moving an entry to another TV; misleading test names are fixed and two weak assertions tightened.
@@ -14,6 +15,8 @@
 - Remove upgrade instructions and references to earlier versions from the docs.
 - Docs aligned with 1.3.0: troubleshooting, tested Remote Service version and the 1.3.0 live validation.
 - The card no longer reports every unrecognised failure as a pairing problem: the fallback message names the error (its identifier only, never its text) and logs it, and a microphone held by another app gets its own message (`microphone_busy`).
+
+Validated with 78 Python tests (92% statement coverage including the generated module), frontend tests, Ruff, mypy and tag/version checks, and GitHub CI including hassfest and HACS validation; the weekly compatibility workflow passed against Home Assistant stable and beta. The card and config-flow changes in this release were not tested live on the TV; voice delivery is unchanged from 1.3.0.
 
 ## 1.3.0 — 2026-10-25
 
