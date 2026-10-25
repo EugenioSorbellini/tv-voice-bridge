@@ -3,7 +3,8 @@
 ## Unreleased
 
 - The card's version-mismatch message now asks to refresh the page instead of blaming the Home Assistant or library version; since 1.3.0 it can only mean a cached older card.
-- Docs aligned with 1.3.0: troubleshooting, dashboard-resource note, tested Remote Service version and the 1.3.0 live validation.
+- Remove upgrade instructions for earlier versions from the docs.
+- Docs aligned with 1.3.0: troubleshooting, tested Remote Service version and the 1.3.0 live validation.
 - The card no longer reports every unrecognised failure as a pairing problem: the fallback message names the error (its identifier only, never its text) and logs it, and a microphone held by another app gets its own message (`microphone_busy`).
 
 ## 1.3.0 — 2026-10-25
@@ -13,7 +14,7 @@
 - The voice session creates and owns its TV client, passing its voice-close callback at construction; the client releases it when its connection closes.
 - Diagnostics no longer report `library_version`, and the unreachable `unsupported_version` server translations are removed.
 - Tests no longer import androidtvremote2 or protobuf internals, and the development requirements no longer pin androidtvremote2: CI installs the version Home Assistant's core integration declares.
-- Remove the pre-1.0 dashboard resource migration and the `lovelace` after-dependency. The card loads through `add_extra_js_url` only; delete any manually added `/tv_voice_bridge/frontend/.../tv-voice-card.js` dashboard resource before upgrading, since it points at an old versioned URL.
+- Remove the pre-1.0 dashboard resource migration and the `lovelace` after-dependency. The card loads through `add_extra_js_url` only.
 - Config entries must store the source Android TV Remote entry id, as every entry since 1.0.0 does; the fallback for entries without it is removed.
 - The card no longer rejects a `remote:` key with a dedicated message; unknown keys are ignored.
 - Protocol lab: runs only the production client. The androidtvremote2 0.3.2 comparison cases are removed; their results remain in `docs/voice-protocol-research.md`.

@@ -20,7 +20,7 @@ Real speech delivery has been verified on one TCL installation. Other Android TV
 3. Go to **Settings → Devices & services → Add integration → TV Voice Bridge** and select an already-paired Android TV remote. Add one integration entry per TV.
 4. Add **TV Voice Bridge** to a dashboard using the card picker, or use the YAML below.
 
-The integration serves and registers its bundled microphone card automatically. Do not add it as a dashboard resource; if a pre-1.0 setup left a `/tv_voice_bridge/frontend/.../tv-voice-card.js` resource, delete it under **Settings → Dashboards → Resources**.
+The integration serves and registers its bundled microphone card automatically. Do not add it as a dashboard resource.
 
 ```yaml
 type: custom:tv-voice-card
