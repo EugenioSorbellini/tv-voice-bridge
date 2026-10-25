@@ -57,6 +57,13 @@ async def test_real_flow_create_and_duplicate(hass, paired_tv):
 
 
 @pytest.mark.asyncio
+async def test_flow_aborts_without_android_tv_remote(hass):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "no_android_tv"
+
+
+@pytest.mark.asyncio
 async def test_flow_reports_missing_pairing_without_contacting_tv(hass, paired_tv):
     entity, source = paired_tv
     Path(hass.config.path(".storage", "androidtv_remote_key.pem")).unlink()

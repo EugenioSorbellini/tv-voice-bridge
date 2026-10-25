@@ -23,6 +23,7 @@
     },
     "abort": {
       "already_configured": "This TV is already configured.",
+      "no_android_tv": "No Android TV Remote TV found. Set up and pair the TV with the Android TV Remote integration first, then add TV Voice Bridge.",
       "reconfigure_successful": "Configuration updated.",
       "unique_id_mismatch": "Add a separate integration entry for a different TV."
     }

@@ -7,7 +7,7 @@ from typing import Any
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.core import callback
-from homeassistant.helpers import selector
+from homeassistant.helpers import entity_registry as er, selector
 import probatio as vol
 
 from .const import CONF_ANDROIDTV_ENTRY_ID, CONF_REMOTE_ENTITY, DOMAIN
@@ -36,6 +36,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if not any(
+            item.domain == "remote" and item.platform == "androidtv_remote"
+            for item in er.async_get(self.hass).entities.values()
+        ):
+            # The selector would otherwise show an empty list with no explanation.
+            return self.async_abort(reason="no_android_tv")
         errors = {}
         if user_input is not None:
             try:

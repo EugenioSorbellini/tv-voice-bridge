@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Adding TV Voice Bridge without any Android TV Remote TV now stops with a message to set up and pair one first, instead of showing an empty TV list.
 - The card's version-mismatch message now asks to refresh the page instead of blaming the Home Assistant or library version; since 1.3.0 it can only mean a cached older card.
 - Troubleshooting explains how to reset the Android and iOS Companion apps' frontend cache when it keeps an old card.
 - Remove upgrade instructions and references to earlier versions from the docs.
