@@ -249,8 +249,7 @@ async def test_options_and_reconfigure_same_tv(hass, paired_tv):
     the same TV.
 
     Verifies: options shows a form and saves; reconfigure finishes with
-    reconfigure_successful. Choosing a different TV (different_target,
-    unique_id_mismatch) is not covered.
+    reconfigure_successful.
     """
     entity, source = paired_tv
     entry = MockConfigEntry(
@@ -280,6 +279,50 @@ async def test_options_and_reconfigure_same_tv(hass, paired_tv):
             result["flow_id"], {"remote_entity": entity.entity_id}
         )
         assert result["reason"] == "reconfigure_successful"
+
+
+@pytest.mark.asyncio
+async def test_options_and_reconfigure_refuse_a_different_tv(hass, paired_tv):
+    """Options and reconfigure can't move an entry to another TV.
+
+    Adds a second paired TV, then submits it in the options flow and in the
+    reconfigure flow of the first TV's entry.
+
+    Verifies: options shows different_target on the form; reconfigure aborts with
+    unique_id_mismatch; the entry still points at the first TV.
+    """
+    entity, source = paired_tv
+    other_source = MockConfigEntry(
+        domain="androidtv_remote", data={"host": "tv2.invalid"}, entry_id="source-tv-2"
+    )
+    other_source.add_to_hass(hass)
+    other = er.async_get(hass).async_get_or_create(
+        "remote",
+        "androidtv_remote",
+        "tv-2",
+        suggested_object_id="second_tv",
+        config_entry=other_source,
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=source.entry_id,
+        data={"remote_entity": entity.entity_id, "androidtv_entry_id": source.entry_id},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"remote_entity": other.entity_id}
+    )
+    assert result["errors"] == {"base": "different_target"}
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "reconfigure", "entry_id": entry.entry_id}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"remote_entity": other.entity_id}
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "unique_id_mismatch"
+    assert entry.data["androidtv_entry_id"] == source.entry_id
 
 
 @pytest.mark.asyncio

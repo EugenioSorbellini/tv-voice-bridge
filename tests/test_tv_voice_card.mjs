@@ -251,12 +251,16 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
 // Makes progress fail with delivery_failed, then maps an unknown code with a server
 // message.
 // Verifies: delivery_failed shows the localized "not delivered" message; an unknown
-// code falls back to errors.unavailable and the server's text is never used.
+// code falls back to errors.unavailable, the server's text is never used, and only the
+// code is logged.
 {
   const { card } = create({ failProgress: true, language: 'en' });
+  const warn = mock.method(console, 'warn', () => {});
   await card._start(); processor.audio(); await card._stop();
   assert.match(card._status.textContent, /not delivered/);
   assert.equal(card._errorKey({ code: 'unknown_code', message: 'PRIVATE SERVER DETAIL' }), 'errors.unavailable');
+  assert.deepEqual(warn.mock.calls.map(call => call.arguments), [['tv-voice-card: unmapped error', 'unknown_code']]);
+  warn.mock.restore();
 }
 
 // Unmapped failures.
@@ -496,13 +500,15 @@ for (const key of [' ', 'Enter']) {
 // Audio context resumed within the user gesture.
 // Makes the microphone request end the gesture, and checks inside resume() that the
 // gesture is still active.
-// Verifies: the card resumes its AudioContext before requesting the microphone. If
-// resume() were never called, this block would not fail.
+// Verifies: the card calls resume() at all, and does so before requesting the
+// microphone.
 {
   let gesture = true;
-  window.AudioContext = class extends AudioContext { async resume() { assert.ok(gesture); } };
+  let resumed = false;
+  window.AudioContext = class extends AudioContext { async resume() { assert.ok(gesture); resumed = true; } };
   getUserMedia = async () => { gesture = false; return makeMedia(); };
   const { card } = create(); await card._start(); await card._stop(true);
+  assert.ok(resumed, 'AudioContext.resume() was called');
   window.AudioContext = AudioContext;
   getUserMedia = async () => makeMedia();
 }

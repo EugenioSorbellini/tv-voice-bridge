@@ -116,15 +116,13 @@ async def test_recording_and_upload_have_separate_deadlines():
 
 
 @pytest.mark.asyncio
-async def test_byte_limit_and_idle_expiry():
-    """Recording limit and session timeout.
+async def test_byte_limit_ends_the_session():
+    """Recording limit.
 
-    Feeds 16384-byte frames until the next one would pass 480000 bytes, then fires a
-    second session's timeout handler directly.
+    Feeds 16384-byte frames until the next one would pass 480000 bytes.
 
     Verifies: the overflowing frame raises recording_limit and closes the session with
-    that error; the timeout closes the session with session_timeout. The handler is called
-    directly, so the idle and lifetime timers that schedule it are not exercised.
+    that error.
     """
     remote = Remote()
     session = VoiceSession(remote.open, Mock())
@@ -136,11 +134,96 @@ async def test_byte_limit_and_idle_expiry():
     assert session.closed
     assert session.error == "recording_limit"
     await session.shutdown()
-    session2 = VoiceSession(Remote().open, Mock())
-    await session2.start()
-    session2._expire()
-    assert session2.closed and session2.error == "session_timeout"
-    await session2.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("deadline", ["first_audio", "upload_idle", "lifetime"])
+async def test_session_timers_end_the_session(deadline):
+    """Each session deadline fires on its own timer.
+
+    Shortens one deadline at a time to a few milliseconds, leaving the others long:
+    first_audio sends nothing after voice starts; upload_idle sends one frame and then
+    stops; lifetime keeps sending a frame every 5 ms, which re-arms the idle deadline.
+
+    Verifies: in each case the timer closes the session with session_timeout and the
+    TV client is disconnected. Continued uploads don't extend the session lifetime.
+    """
+    timeouts = {"FIRST_AUDIO_TIMEOUT": 60, "UPLOAD_IDLE_SECONDS": 60, "SESSION_TIMEOUT": 60}
+    timeouts[
+        {
+            "first_audio": "FIRST_AUDIO_TIMEOUT",
+            "upload_idle": "UPLOAD_IDLE_SECONDS",
+            "lifetime": "SESSION_TIMEOUT",
+        }[deadline]
+    ] = 0.02
+    remote = Remote()
+    with patch.multiple("custom_components.tv_voice_bridge.session", **timeouts):
+        session = VoiceSession(remote.open, Mock())
+        await session.start()
+        if deadline == "upload_idle":
+            session.feed(bytes(2))
+        for _ in range(40):
+            if session.closed:
+                break
+            if deadline == "lifetime":
+                session.feed(bytes(2))
+            await asyncio.sleep(0.005)
+    assert session.closed
+    assert session.error == "session_timeout"
+    assert remote.disconnects
+    await session.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_tv_without_voice_is_refused_before_requesting_voice():
+    """A TV that doesn't offer voice is refused after connecting.
+
+    Starts a session against a TV client whose handshake left voice disabled.
+
+    Verifies: start fails with voice_unsupported; voice is never requested; the client
+    is disconnected and the TV reservation released.
+    """
+    remote = Remote()
+    remote.is_voice_enabled = False
+    release = Mock()
+    session = VoiceSession(remote.open, release)
+    with pytest.raises(VoiceError, match="voice_unsupported"):
+        await session.start()
+    remote.start_voice.assert_not_awaited()
+    assert remote.disconnects
+    release.assert_called_once()
+    await session.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["connect", "voice_start"])
+async def test_connect_and_voice_start_limits(phase):
+    """The TV connection and the voice request each have their own time limit.
+
+    Shortens CONNECT_TIMEOUT or VOICE_START_TIMEOUT to 10 ms and makes that step of
+    the stub TV hang.
+
+    Verifies: start raises TimeoutError (reported to the card as unavailable); for a
+    connect timeout voice is never requested; the client is disconnected and the TV
+    reservation released.
+    """
+    remote = Remote()
+    hang = asyncio.Event()
+    if phase == "connect":
+        remote.async_connect = hang.wait
+    else:
+        remote.start_voice = AsyncMock(side_effect=hang.wait)
+    release = Mock()
+    name = "CONNECT_TIMEOUT" if phase == "connect" else "VOICE_START_TIMEOUT"
+    with patch(f"custom_components.tv_voice_bridge.session.{name}", 0.01):
+        session = VoiceSession(remote.open, release)
+        with pytest.raises(TimeoutError):
+            await session.start()
+    if phase == "connect":
+        remote.start_voice.assert_not_awaited()
+    assert remote.disconnects
+    release.assert_called_once()
+    await session.shutdown()
 
 
 @pytest.mark.asyncio

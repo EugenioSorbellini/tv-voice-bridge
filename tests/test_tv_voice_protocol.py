@@ -273,7 +273,8 @@ async def test_start_voice_times_out_and_fails_on_lost_connection(wire):
     """Voice start can be timed out and fails when the connection drops.
 
     Starts voice with no TV reply under a 0.01 s timeout set by the test (the production
-    5 s limit lives in the session); then starts again and drops the connection.
+    5 s limit lives in the session and is tested there); then starts again and drops the
+    connection.
 
     Verifies: the first attempt raises TimeoutError; the second fails with unavailable.
     """

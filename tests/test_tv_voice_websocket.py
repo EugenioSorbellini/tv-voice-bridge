@@ -104,7 +104,7 @@ async def test_binary_delivery_and_no_audio_in_json_debug_logs(hass_ws_client, b
 
 
 @pytest.mark.asyncio
-async def test_connection_isolation_busy_and_malformed_frames(hass_ws_client, bridge):
+async def test_connection_isolation_busy_and_out_of_order_frame(hass_ws_client, bridge):
     """Sessions are per connection, the TV is reserved, and an out-of-order frame ends the session.
 
     Starts a session on one connection; from a second connection, tries to cancel it with
@@ -137,18 +137,67 @@ async def test_connection_isolation_busy_and_malformed_frames(hass_ws_client, br
     await other.close()
 
 
+@pytest.mark.parametrize(
+    "malformed",
+    ["header_only", "oversized", "odd_length", "wrong_token"],
+)
+async def test_malformed_frames_end_the_session(hass_ws_client, bridge, malformed):
+    """Binary frames that break the frame format end the session without feeding audio.
+
+    Starts a session and sends one malformed frame (parametrized): a header with no
+    audio, 16386 bytes of audio (over the 16384-byte limit), three bytes of audio (odd
+    length), or a frame signed with another session's token.
+
+    Verifies: progress then returns invalid_audio; no audio was accepted; no record
+    remains and the TV client is disconnected.
+    """
+    manager, _, remotes = bridge
+    client = await hass_ws_client()
+    session = (await call(client, type=DOMAIN + "/start", request_id="e" * 32))["result"]
+    record = manager.records[session["session_id"]]
+    payload = {
+        "header_only": frame(session, b""),
+        "oversized": frame(session, bytes(16386)),
+        "odd_length": frame(session, bytes(3)),
+        "wrong_token": frame(session, bytes(8192), token="f" * 32),
+    }[malformed]
+    await client.send_bytes(payload)
+    result = await call(
+        client, type=DOMAIN + "/progress", session_id=session["session_id"], sequence=1
+    )
+    assert result["error"]["code"] == "invalid_audio"
+    assert record.session.total_bytes == 0
+    assert not manager.records
+    remotes[0].disconnect.assert_called()
+    await client.close()
+
+
 @pytest.mark.asyncio
-async def test_permission_checked_on_binary_and_stop(hass_ws_client, bridge):
-    """TV-control permission is checked again on stop and on start.
+async def test_permission_checked_on_binary_stop_and_start(hass_ws_client, bridge):
+    """TV-control permission is checked again on audio frames, stop and start.
 
-    Starts a session, then with permission revoked calls stop and tries to start another
-    session.
+    Starts a session and sends an audio frame with permission revoked. Starts a second
+    session and calls stop with permission revoked, then tries to start a third.
 
-    Verifies: both return unauthorized and the stopped session is removed. Despite the
-    name, no binary frame is sent while permission is revoked.
+    Verifies: the frame is not accepted and ends the session with unauthorized, which
+    progress then reports; stop returns unauthorized and removes its session; start
+    returns unauthorized.
     """
     manager, entity, _ = bridge
     client = await hass_ws_client()
+    session = (await call(client, type=DOMAIN + "/start", request_id="3" * 32))["result"]
+    record = manager.records[session["session_id"]]
+    with patch.object(BridgeManager, "allowed", return_value=False):
+        await client.send_bytes(frame(session, bytes(8192)))
+        # Frames and commands keep WebSocket order, so this reply follows the frame.
+        await call(client, type=DOMAIN + "/progress", session_id=session["session_id"], sequence=1)
+    assert record.session.total_bytes == 0
+    assert not manager.records
+    # With permission back, the retained error shows the frame itself was refused.
+    response = await call(
+        client, type=DOMAIN + "/progress", session_id=session["session_id"], sequence=1
+    )
+    assert response["error"]["code"] == "unauthorized"
     response = await call(client, type=DOMAIN + "/start", request_id="4" * 32)
     session = response["result"]
     with patch.object(BridgeManager, "allowed", return_value=False):
@@ -160,6 +209,67 @@ async def test_permission_checked_on_binary_and_stop(hass_ws_client, bridge):
     with patch.object(BridgeManager, "allowed", return_value=False):
         response = await call(client, type=DOMAIN + "/start", request_id="5" * 32)
         assert response["error"]["code"] == "unauthorized"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_start_reports_voice_unsupported_and_connect_timeout(hass_ws_client, bridge):
+    """Start failures reach the client as stable codes and free the TV.
+
+    Starts once against a TV whose handshake left voice disabled, then once with the
+    connect limit shortened to 10 ms and a connect that hangs, then once normally.
+
+    Verifies: the first start returns voice_unsupported and the second unavailable;
+    neither leaves a record or session behind; the third start succeeds, so the TV
+    isn't left reserved.
+    """
+    manager, _, remotes = bridge
+    client = await hass_ws_client()
+    with patch("custom_components.tv_voice_bridge.manager.TvVoiceClient") as factory:
+        factory.return_value = Mock(
+            is_voice_enabled=False, async_connect=AsyncMock(), disconnect=Mock(return_value=False)
+        )
+        response = await call(client, type=DOMAIN + "/start", request_id="1" * 32)
+        assert response["error"]["code"] == "voice_unsupported"
+        factory.return_value = Mock(
+            async_connect=asyncio.Event().wait, disconnect=Mock(return_value=False)
+        )
+        with patch("custom_components.tv_voice_bridge.session.CONNECT_TIMEOUT", 0.01):
+            response = await call(client, type=DOMAIN + "/start", request_id="2" * 32)
+        assert response["error"]["code"] == "unavailable"
+    assert not manager.records and not manager.sessions
+    assert (await call(client, type=DOMAIN + "/start", request_id="3" * 32))["success"]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_start_without_entity_needs_a_single_tv(hass_ws_client, bridge):
+    """Start may omit remote_entity only when exactly one TV is configured.
+
+    Adds a second paired TV to the bridge, then starts without remote_entity and again
+    with the second TV's entity.
+
+    Verifies: the first start returns select_target; naming the entity starts a session
+    on that TV.
+    """
+    manager, _, _ = bridge
+    source = MockConfigEntry(
+        domain="androidtv_remote", data={"host": "tv2.invalid"}, entry_id="source-tv-2"
+    )
+    source.add_to_hass(manager.hass)
+    entity = er.async_get(manager.hass).async_get_or_create(
+        "remote", "androidtv_remote", "tv-2", suggested_object_id="second_tv", config_entry=source
+    )
+    manager.targets["bridge-entry-2"] = (entity.entity_id, source.entry_id)
+    client = await hass_ws_client()
+    response = await call(client, type=DOMAIN + "/start", request_id="1" * 32)
+    assert response["error"]["code"] == "select_target"
+    response = await call(
+        client, type=DOMAIN + "/start", request_id="2" * 32, remote_entity=entity.entity_id
+    )
+    assert response["success"]
+    record = manager.records[response["result"]["session_id"]]
+    assert record.target.entity_id == entity.entity_id
     await client.close()
 
 

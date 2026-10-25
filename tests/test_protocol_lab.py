@@ -42,15 +42,24 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(output.getvalue())["mode"], "offline_plan")
 
     def test_live_requires_a_fixture(self):
-        """--execute alone is refused.
+        """--execute without a complete target and fixture is refused.
 
-        Runs main with only --execute.
+        Runs main with only --execute, then with host, certificate and key but no WAV.
 
-        Verifies: argparse exits with an error. It doesn't check which argument is reported
-        missing (host, certificate, key or WAV).
+        Verifies: both exit with the lab's own error naming the required --host, --cert,
+        --key and --wav, not some unrelated argparse failure.
         """
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            lab.main(["--execute"])
+        for argv in (
+            ["--execute"],
+            ["--execute", "--host", "tv.invalid", "--cert", "cert", "--key", "key"],
+        ):
+            with (
+                self.subTest(argv=argv),
+                contextlib.redirect_stderr(io.StringIO()) as error,
+                self.assertRaises(SystemExit),
+            ):
+                lab.main(argv)
+            self.assertIn("Live execution requires --host, --cert, --key", error.getvalue())
 
     def test_fixture_rate_matches_the_client(self):
         """The lab records at the client's sample rate.
