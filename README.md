@@ -56,6 +56,7 @@ Diagnostics contain only version information and session counts, with no audio, 
 - **TV unavailable / pairing required:** verify the core Android TV Remote integration can control the TV and repair its pairing there. TV Voice Bridge reuses the pairing; it does not generate or replace credentials.
 - **Card out of date:** after an update, the dashboard can still run the previous card from the browser or app cache. Refresh the page. If the card still shows an old error or the out-of-date message, reset the cache:
   - **Android Companion app:** **Settings → Companion app → Troubleshooting → Reset frontend cache**, then reopen the dashboard.
+  - **iOS Companion app:** **Settings → Companion app → Debugging → Reset frontend cache**, then pull down on the dashboard to refresh.
   - **Browser:** reload while bypassing the cache (Ctrl+Shift+R, or Cmd+Shift+R on macOS).
 - **Sent but no response:** delivery counters mean the transport accepted the audio, not that the assistant recognized or executed a command. Check the TV assistant itself.
 - **Wrong TV / multiple TVs:** select `entity` explicitly in the card.
