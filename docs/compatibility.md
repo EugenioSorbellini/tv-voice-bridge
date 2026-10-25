@@ -1,20 +1,23 @@
 # Compatibility contract
 
-The bridge uses its own voice-only client (`client.py`) on a dedicated connection, with the certificate and key from the core Android TV Remote pairing. It adds no package requirement. Its handshake replies, client identity and feature flags match androidtvremote2 **0.3.2**, the reference implementation for the live trials. The minimum HA version, **2026.10.2**, is declared in hacs.json; CI uses that exact release.
+## Requirements
 
-The Google Android TV Remote Service on the tested TCL (**7.00.999235495**) consumes protobuf field 31 as audio bytes; its PCM decoder passes those bytes through unchanged. Upstream 0.3.2 nests a session/samples message there, introducing metadata into the audio. In measured sessions with 8192-byte chunks that wrapper was five bytes, shifting PCM16 alignment; wrapper size is not universally fixed. Generated `voice.proto` schemas separate client audio bytes in field 31 from the server's field-31 session-close message. It preserves pairing and the core integration connection. It declares 16 kHz, Android mono channel mask 16, PCM16 format 2.
+- Home Assistant **2026.10.2** or later, as declared in hacs.json. CI tests that exact release, and a weekly workflow tests the current stable and beta releases.
+- The core Android TV Remote integration, set up and paired. The bridge takes the TV host from its config entry and the certificate and key from its pairing files; a test compares those paths with core's own client factory.
+- No extra Python packages. Home Assistant supplies the protobuf runtime.
 
-Live tests on 2026-10-22 confirmed recognition with raw PCM at both 8 and 16 kHz. The receiver defaults to 8 kHz/mono/PCM16, and raw 8 kHz works without explicitly declaring those audio fields. The bridge's 16 kHz choice is therefore not a demonstrated TCL requirement. Receiver inspection supports a Google Remote Service implementation explanation rather than a discovered TCL-specific parsing branch; other vendors and service generations remain unverified. One nested 16 kHz trial also recognized the phrase, demonstrating that recognition can tolerate malformed input, not that the nested schema matches this receiver.
+## Verified hardware
 
-The bridge depends on the core integration for pairing and on its certificate paths, which a test compares against core's own client factory. The client owns the handshake, pings and idle timeout; a Remote Service change there would need a client update, tested on hardware.
+Speech recognition is verified on one TCL with Google Android TV Remote Service **7.00.999235495**. Device reports should include the TV model and Remote Service version, without speech content.
 
-The one-second pre-search delay is a policy constant, not evidence that every Android TV needs the same timing. On the tested TV, immediate voice requests intermittently get no voice-begin reply, and 0.25–0.5 s delays can lose the start of speech without any error. Polling `is_voice_enabled` does not help because it is already true at connection, and waiting for the initial app/IME callback also failed once in three. The bridge waits for the TV's voice-begin reply before audio.
+## Voice client
 
-Submission sends the final audio and client voice-end, immediately calls graceful transport close, and awaits the connection's close. A five-second **failure deadline**, rather than a minimum wait, aborts a stalled close and reports delivery failure. The stop reply waits for shutdown, and the TV stays reserved while its connection is draining. Cancellation and unload also own this bounded cleanup, including connections that finish startup after cancellation. Successful shutdown is not recognition confirmation.
+The bridge's voice-only client (`client.py`) opens its own TLS connection to the TV with the core pairing. Its handshake replies, client identity and feature flags match androidtvremote2 **0.3.2**, and it handles the handshake, pings and idle timeout itself.
 
-A matching server field-31 close stops further audio, discards any unsent partial chunk and releases the upload handler. Stale, missing-session and duplicate closes do not end a different session. The bridge does not echo client voice-end after the TV has already closed voice. The owning client receives `session_ended` on its next progress/stop request; this is not an assistant-completion event. Already accepted transport bytes cannot be recalled. The card streams its recording to Home Assistant while capturing, but the bridge holds that audio and forwards it to the TV only on submission, as the burst path validated in trials 35–36. A TV close therefore surfaces to the card through its next progress acknowledgement rather than a pushed microphone-stop notification.
+- **Audio:** raw PCM16, 16 kHz mono (Android channel mask 16, format 2), sent as bytes in protobuf field 31 in 8192-byte chunks. The client and server messages are defined in `voice.proto`.
+- **Start:** after connecting, the bridge waits one second, requests voice and waits for the TV's voice-begin reply before sending audio. The one-second delay is tuned on the tested TV.
+- **Submission:** the card streams its recording to Home Assistant while capturing; the bridge holds it and forwards it to the TV only on stop. It then sends voice-end, closes the connection gracefully and waits up to five seconds for the close, reporting a delivery failure if it stalls. The TV stays reserved until the connection has closed. Forwarded bytes mean the TV transport accepted the audio, not that the assistant recognized it.
+- **TV voice-close:** a matching close from the TV stops further audio, discards any unsent chunk and is reported to the card as `session_ended` on its next progress or stop request. Closes for other sessions are ignored.
+- **Cancellation and unload** discard held audio and close the connection with the same five-second limit.
 
-Other device reports should include model and Remote Service version without speech content. Hardware recognition compatibility is verified only on the tested TCL installation.
-
-The [voice protocol research](voice-protocol-research.md) records the tested
-installation, fixtures, trial results and evidence limits behind these choices.
+The [voice protocol research](voice-protocol-research.md) records the tested installation, trial results and evidence behind these choices.
