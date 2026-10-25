@@ -7,7 +7,8 @@ from typing import Any
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.core import callback
-from homeassistant.helpers import entity_registry as er, selector
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import selector
 import probatio as vol
 
 from .const import CONF_ANDROIDTV_ENTRY_ID, CONF_REMOTE_ENTITY, DOMAIN
