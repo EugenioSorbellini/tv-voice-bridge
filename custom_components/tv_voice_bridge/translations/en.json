@@ -97,6 +97,9 @@
     "microphone_missing": {
       "message": "No microphone is available on this device."
     },
+    "microphone_busy": {
+      "message": "The microphone is in use by another app. Close it and try again."
+    },
     "audio_blocked": {
       "message": "The browser blocked audio. Press Speak to TV again."
     },

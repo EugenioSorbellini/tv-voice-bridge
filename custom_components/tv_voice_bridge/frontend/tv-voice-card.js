@@ -165,7 +165,8 @@ export class TVVoiceCard extends HTMLElement {
     this._status.classList.toggle('error', error);
     const feedback = Boolean(message) || this._state !== 'idle';
     this._status.setAttribute('part', feedback ? 'status feedback' : 'status hint');
-    this._status.textContent = message ? this._t(message, values) :
+    this._status.textContent = message ? this._t(message, values) +
+      (message === 'errors.unavailable' && this._errorDetail ? ` (${this._errorDetail})` : '') :
       this._t(this._config.activation === 'toggle' ? 'toggle_hint' : 'hold_hint') + ' ' + this._t('accessible_hint');
   }
 
@@ -177,6 +178,7 @@ export class TVVoiceCard extends HTMLElement {
     this._requestId = crypto.randomUUID().replaceAll('-', '');
     this._requestSent = false;
     this._token = null;
+    this._errorDetail = '';
     this._sessionReady = null;
     // Preallocated once per recording; _capturedBytes marks the filled prefix.
     this._buffer = new Uint8Array(MAX_BYTES);
@@ -277,8 +279,14 @@ export class TVVoiceCard extends HTMLElement {
 
   _errorKey(error) {
     const code = error?.name === 'NotAllowedError' ? 'microphone_denied' :
-      error?.name === 'NotFoundError' ? 'microphone_missing' : error?.code;
-    return this._t(`errors.${code}`) !== `errors.${code}` ? `errors.${code}` : 'errors.unavailable';
+      error?.name === 'NotFoundError' ? 'microphone_missing' :
+      ['NotReadableError', 'TrackStartError'].includes(error?.name) ? 'microphone_busy' : error?.code;
+    if (this._t(`errors.${code}`) !== `errors.${code}`) return `errors.${code}`;
+    // Show only an identifier (e.g. OverconstrainedError), never free-form error text.
+    const detail = [error?.code, error?.name].find(value => /^[A-Za-z_]{1,40}$/.test(value ?? ''));
+    console.warn('tv-voice-card: unmapped error', detail ?? typeof error);
+    this._errorDetail = detail ?? '';
+    return 'errors.unavailable';
   }
 
   _cancelRequest(hass, requestId) {

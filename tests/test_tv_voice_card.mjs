@@ -221,6 +221,25 @@ function create({ start = Promise.resolve(session), failProgress = false, stall 
   assert.equal(card._errorKey({ code: 'unknown_code', message: 'PRIVATE SERVER DETAIL' }), 'errors.unavailable');
 }
 
+// Unmapped failures name their identifier, never their text; a busy microphone has its own message.
+{
+  const { card, calls } = create({ language: 'en' });
+  const warn = mock.method(console, 'warn', () => {});
+  getUserMedia = async () => { throw Object.assign(new Error('PRIVATE DEVICE DETAIL'), { name: 'OverconstrainedError' }); };
+  await card._start();
+  assert.match(card._status.textContent, /Cannot connect to TV voice\. .*\(OverconstrainedError\)$/);
+  assert.doesNotMatch(card._status.textContent, /PRIVATE/);
+  assert.equal(warn.mock.calls[0].arguments[1], 'OverconstrainedError');
+  getUserMedia = async () => { throw Object.assign(new Error(), { name: 'NotReadableError' }); };
+  await card._start();
+  assert.match(card._status.textContent, /in use by another app/);
+  assert.equal(card._errorKey({ code: 'not found', message: 'x' }), 'errors.unavailable');
+  assert.equal(card._errorDetail, '', 'identifiers with spaces are not shown');
+  assert.equal(calls.length, 0);
+  warn.mock.restore();
+  getUserMedia = async () => makeMedia();
+}
+
 // Each network phase times out, even while the socket still appears open.
 for (const phase of ['start', 'progress', 'stop']) {
   mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
