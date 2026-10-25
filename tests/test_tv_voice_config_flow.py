@@ -12,7 +12,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.tv_voice_bridge import async_setup_entry, async_unload_entry
 from custom_components.tv_voice_bridge.const import DOMAIN, VERSION
-from custom_components.tv_voice_bridge.frontend import async_register_frontend
+from custom_components.tv_voice_bridge.frontend import async_register_frontend, frontend_hash
 from custom_components.tv_voice_bridge.manager import BridgeManager
 from custom_components.tv_voice_bridge.target import resolve_target
 
@@ -133,11 +133,22 @@ async def test_frontend_registers_the_bundled_module(hass):
     hass.http = Mock(async_register_static_paths=AsyncMock())
     with patch("custom_components.tv_voice_bridge.frontend.frontend.add_extra_js_url") as register:
         url = await async_register_frontend(hass)
-    assert f"/{VERSION}/" in url
     register.assert_called_once_with(hass, url)
     registration = hass.http.async_register_static_paths.call_args.args[0][0]
-    assert registration.url_path == f"/tv_voice_bridge/frontend/{VERSION}"
+    assert registration.url_path == f"/tv_voice_bridge/frontend/{VERSION}-{frontend_hash()}"
+    assert url == registration.url_path + "/tv-voice-card.js"
     assert Path(registration.path, "tv-voice-card.js").is_file()
+
+
+def test_frontend_hash_changes_with_any_asset(tmp_path):
+    (tmp_path / "card.js").write_text("a")
+    first = frontend_hash(tmp_path)
+    assert frontend_hash(tmp_path) == first
+    (tmp_path / "card.js").write_text("b")
+    assert frontend_hash(tmp_path) != first
+    second = frontend_hash(tmp_path)
+    (tmp_path / "card.js").rename(tmp_path / "other.js")
+    assert frontend_hash(tmp_path) != second
 
 
 @pytest.mark.asyncio
@@ -161,7 +172,7 @@ async def test_complete_setup_serves_assets_and_unloads(hass, paired_tv, hass_cl
     assert manager.frontend_url in hass.data[DATA_EXTRA_MODULE_URL].urls
     client = await hass_client()
     for name in ("tv-voice-card.js", "pcm-worklet.js", "pcm.mjs", "localize.mjs"):
-        response = await client.get(f"/tv_voice_bridge/frontend/{VERSION}/" + name)
+        response = await client.get(manager.frontend_url.rsplit("/", 1)[0] + "/" + name)
         assert response.status == 200
         assert "javascript" in response.content_type
     assert await hass.config_entries.async_unload(entries[0].entry_id)

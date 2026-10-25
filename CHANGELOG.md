@@ -4,6 +4,8 @@
 
 - The card's version-mismatch message now asks to refresh the page instead of blaming the Home Assistant or library version; since 1.3.0 it can only mean a cached older card.
 - Docs aligned with 1.3.0: troubleshooting, dashboard-resource note, tested Remote Service version and the 1.3.0 live validation.
+- The card no longer reports every unrecognised failure as a pairing problem: the fallback message names the error (its identifier only, never its text) and logs it, and a microphone held by another app gets its own message (`microphone_busy`).
+- Assets are served under `/tv_voice_bridge/frontend/<version>-<content hash>/`, so a CDN or browser cache (e.g. Cloudflare caching `.js`) can never serve an older card or worklet after a deployment, even one that keeps the version.
 
 ## 1.3.0 — 2026-10-25
 
