@@ -5,6 +5,10 @@ description = "Home Assistant browser microphone bridge to paired Android TVs"
 requires-python = ">=3.14.2"
 license = "MIT"
 
+[tool.coverage.run]
+# Required by the coverage badge action, which reads the data in another container.
+relative_files = true
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "auto"

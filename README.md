@@ -1,5 +1,7 @@
 # TV Voice Bridge
 
+[![Coverage](https://raw.githubusercontent.com/EugenioSorbellini/tv-voice-bridge/python-coverage-comment-action-data/badge.svg)](https://github.com/EugenioSorbellini/tv-voice-bridge/tree/python-coverage-comment-action-data)
+
 Use the microphone on your phone, tablet, or browser to speak to an already-paired Android TV's voice assistant from a Home Assistant dashboard.
 
 Hold the microphone button to record and release it to send. Recording starts while the TV connects. Once the connection is ready, audio uploads to Home Assistant while you speak, so little is left to send when you release. Home Assistant forwards nothing to the TV until you release. If you release before the connection is ready, the recording waits in memory and is sent once connected. Capture stops at 15 seconds; upload time has separate limits. A toggle mode and assistive activation are also available.

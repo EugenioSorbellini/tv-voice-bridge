@@ -8,6 +8,9 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    permissions:
+      # The coverage step pushes its badge and report to a data branch.
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,6 +29,14 @@ jobs:
       - run: pytest --cov=custom_components.tv_voice_bridge --cov-report=term-missing
       - run: npm run check && npm test
       - run: python tools/check_release.py
+      - name: Coverage badge and summary
+        if: github.event_name == 'push' && github.ref_name == 'main'
+        uses: py-cov-action/python-coverage-comment-action@e5fb2218463c3377f3504b0c5b5646ed53da7a2f # v4.5
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          ACTIVITY: save_coverage_data_files
+          MINIMUM_GREEN: 90
+          MINIMUM_ORANGE: 70
   hassfest:
     runs-on: ubuntu-latest
     steps:

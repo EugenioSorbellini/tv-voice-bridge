@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CI publishes Python test coverage on every push to main: a README badge, a job summary and an HTML report on the `python-coverage-comment-action-data` branch.
 - Tests: every CI test describes what it does and verifies. New tests cover the session timers firing on their own, the connect and voice-start limits, TVs without voice, malformed and unauthorized audio frames, start without an entity when several TVs exist, and moving an entry to another TV; misleading test names are fixed and two weak assertions tightened.
 - Adding TV Voice Bridge without any Android TV Remote TV now stops with a message to set up and pair one first, instead of showing an empty TV list.
 - The card's version-mismatch message now asks to refresh the page instead of blaming the Home Assistant or library version; since 1.3.0 it can only mean a cached older card.
