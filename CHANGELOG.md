@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 — 2026-10-25
 
 - Replace the androidtvremote2 voice adapter with the bridge's own voice-only client (`client.py`). It opens the TLS connection with the core Android TV Remote pairing, answers the handshake and pings as androidtvremote2 0.3.2 does, and sends the validated voice messages. `voice.proto` now defines every message the client exchanges, one schema per direction. Nothing replaces or reads library internals any more, so a Home Assistant release that changes androidtvremote2 no longer disables voice, and the `unsupported_version` gate and `protocol.py` are gone. Pairing still comes from the core integration.
 - Regenerate `voice_pb2` with protoc 35.1 (grpcio-tools 1.84.1) for protobuf 7, matching Home Assistant's runtime. The generated code now checks the runtime version at import, so an incompatible protobuf fails clearly instead of silently relying on old generated code.
@@ -12,7 +12,7 @@
 - The card no longer rejects a `remote:` key with a dedicated message; unknown keys are ignored.
 - Protocol lab: runs only the production client. The androidtvremote2 0.3.2 comparison cases are removed; their results remain in `docs/voice-protocol-research.md`.
 
-Validated with 64 Python tests (91% statement coverage including the generated module), Ruff and mypy; the wire format is checked against a fixed copy of the upstream 0.3.2 schema. Live on 2026-10-25 on the tested TCL, now running Remote Service 7.00.999235495, through Home Assistant 2026.10.3: the client completed TLS 1.3 and the handshake with the existing core pairing, and a 2.7 s Italian TTS phrase sent through the WebSocket start/frames/stop path was forwarded in full (86,272 bytes, no delivery failure) and recognized on screen (the weather query was answered). Start took 1.3 s including the 1 s readiness delay. That live run predates the session-ownership change and the protobuf 7 regeneration, which are covered by the automated tests only. Other devices remain unverified.
+Validated with 64 Python tests (91% statement coverage including the generated module), frontend tests, Ruff, mypy and tag/version checks, and GitHub CI including hassfest and HACS validation; the wire format is checked against a fixed copy of the upstream 0.3.2 schema. Live on 2026-10-25 on the tested TCL (Remote Service 7.00.999235495) through Home Assistant 2026.10.3, with the existing core pairing: the client completed TLS 1.3 and the handshake, and a 2.7 s Italian TTS phrase sent through the WebSocket start/frames/stop path was forwarded in full (86,272 bytes) and answered on screen. After the cleanup, the release build forwarded a 1.2 s phrase in full (39,168 bytes, no delivery failure), with start taking 1.35 s including the 1 s readiness delay. Other devices remain unverified.
 
 ## 1.2.2 — 2026-10-24
 
