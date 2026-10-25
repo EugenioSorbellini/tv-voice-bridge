@@ -5,6 +5,7 @@
 - Adding TV Voice Bridge without any Android TV Remote TV now stops with a message to set up and pair one first, instead of showing an empty TV list.
 - The card's version-mismatch message now asks to refresh the page instead of blaming the Home Assistant or library version; since 1.3.0 it can only mean a cached older card.
 - Troubleshooting explains how to reset the Android and iOS Companion apps' frontend cache when it keeps an old card.
+- Focus the voice protocol research on what was tested, the tested TV, why androidtvremote2 0.3.2 and a patched library were not used, and what to expect on other Google TVs; protocol lab usage moves to its `--help`.
 - Condense the WebSocket protocol doc into command, frame and limit tables; `voice_pb2` regeneration moves to the README's Development section.
 - Rewrite the compatibility contract around what the bridge requires and does; trial evidence stays in the research notes.
 - Remove upgrade instructions and references to earlier versions from the docs.

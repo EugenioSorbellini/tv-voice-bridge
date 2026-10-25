@@ -95,7 +95,7 @@ python3.14 -m venv /tmp/tv-voice-protoc
 
 grpcio-tools 1.84.1 bundles protoc 35.1, so the module requires protobuf 7.35.1 or later at import. Keep it at or below the protobuf of the minimum supported Home Assistant (7.36.2 for 2026.10.2), and regenerate with a matching compiler when Home Assistant moves to a new protobuf major; the weekly compatibility workflow imports the module against HA beta first.
 
-Release checks and hardware acceptance are summarized per version in the [Changelog](CHANGELOG.md). The [voice protocol research](docs/voice-protocol-research.md) records the live TV trials behind the voice wire format and its timing, and how to run the protocol lab.
+Release checks and hardware acceptance are summarized per version in the [Changelog](CHANGELOG.md). The [voice protocol research](docs/voice-protocol-research.md) records the tested hardware, the live TV trials and why the bridge has its own voice client.
 
 CI also runs official hassfest and HACS validation. Release automation checks the tag against all version declarations and attaches a component-only ZIP to a published GitHub release. Publishing is a separate maintainer action; local tests do not certify compatibility with untested TVs or future HA releases.
 

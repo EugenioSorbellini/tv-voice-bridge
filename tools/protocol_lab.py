@@ -2,9 +2,16 @@
 
 Run directly from the checkout. No Home Assistant imports, pairing changes,
 microphone capture, automatic device discovery, or release operations.
-It runs the production client at its 16 kHz rate. The earlier comparison
-cases against androidtvremote2 0.3.2 are recorded in
-docs/voice-protocol-research.md and in Git history.
+It runs the production client at its 16 kHz rate.
+
+Run one live trial at a time, with the TV owner's agreement, because it opens
+the assistant on screen. Example:
+
+  python tools/protocol_lab.py --wav FIXTURE.wav --host TV_HOST --cert CERT --key KEY --execute
+
+The JSON report leaves recognition as not_observed: judge it from the screen.
+Keep fixtures, screenshots, hosts and pairing material out of Git. Results are
+in docs/voice-protocol-research.md.
 """
 
 from __future__ import annotations
@@ -226,7 +233,9 @@ def bounded_seconds(value: str) -> float:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--wav", type=Path)
     parser.add_argument("--host")
     parser.add_argument("--cert", type=Path)
