@@ -9,9 +9,9 @@ import logging
 import secrets
 from typing import TYPE_CHECKING
 
-from androidtvremote2 import AndroidTVRemote
 from homeassistant.auth.permissions.const import POLICY_CONTROL
 
+from .client import TvVoiceClient
 from .const import BINARY_HEADER_BYTES, MAX_CHUNK_BYTES, MAX_TERMINAL_ERRORS, TERMINAL_ERROR_SECONDS
 from .errors import VoiceError
 from .session import VoiceSession
@@ -147,15 +147,7 @@ class BridgeManager:
             raise VoiceError("invalid_request")
         token = secrets.token_hex(16)
         subscription = "tv_voice_bridge:" + token
-        remote = AndroidTVRemote(
-            client_name="Home Assistant TV Voice",
-            certfile=target.certfile,
-            keyfile=target.keyfile,
-            host=target.host,
-            loop=self.hass.loop,
-            enable_ime=True,
-            enable_voice=True,
-        )
+        remote = TvVoiceClient(target.host, target.certfile, target.keyfile, self.hass.loop)
 
         def release() -> None:
             self.records.pop(token, None)

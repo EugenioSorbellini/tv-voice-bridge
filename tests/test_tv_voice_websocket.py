@@ -12,6 +12,7 @@ from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
+from custom_components.tv_voice_bridge.client import TvVoiceClient
 from custom_components.tv_voice_bridge.const import DOMAIN
 from custom_components.tv_voice_bridge.manager import BridgeManager
 from custom_components.tv_voice_bridge.websocket import async_register
@@ -34,8 +35,9 @@ async def bridge(hass):
     async_register(hass)
     remotes = []
 
-    def make_remote(**kwargs):
+    def make_remote(*args, **kwargs):
         remote = Mock()
+        remote.disconnect.return_value = False  # No transport to wait for.
         remote.is_voice_enabled = True
         remote.async_connect = AsyncMock()
         remote.start_voice = AsyncMock(return_value=Mock(send_chunk=Mock(return_value=True)))
@@ -43,11 +45,7 @@ async def bridge(hass):
         return remote
 
     with (
-        patch("custom_components.tv_voice_bridge.manager.AndroidTVRemote", side_effect=make_remote),
-        patch(
-            "custom_components.tv_voice_bridge.session.configure_voice_protocol",
-            new=lambda *_: None,
-        ),
+        patch("custom_components.tv_voice_bridge.manager.TvVoiceClient", side_effect=make_remote),
         patch("custom_components.tv_voice_bridge.session.VOICE_READY_DELAY", 0),
     ):
         yield manager, entity.entity_id, remotes
@@ -148,8 +146,8 @@ async def test_cancel_pending_start_and_disconnect(hass_ws_client, bridge):
         waiting.set()
         await asyncio.Future()
 
-    with patch("custom_components.tv_voice_bridge.manager.AndroidTVRemote") as factory:
-        remote = Mock(async_connect=connect)
+    with patch("custom_components.tv_voice_bridge.manager.TvVoiceClient") as factory:
+        remote = Mock(async_connect=connect, disconnect=Mock(return_value=False))
         factory.return_value = remote
         await client.send_json_auto_id({"type": DOMAIN + "/start", "request_id": "6" * 32})
         await waiting.wait()
@@ -230,6 +228,7 @@ async def test_terminal_errors_survive_cleanup_and_remain_owned(hass_ws_client, 
     # Retained errors do not reserve the TV or keep the session alive.
     reference = weakref.ref(record.session)
     del record
+    remotes.clear()  # The client holds the session's close callback; only tests keep clients.
     await manager.hass.async_block_till_done()
     import gc
 
@@ -286,11 +285,13 @@ async def test_stop_waits_for_transport_and_reserves_tv_until_closed(
     completed = manager.hass.loop.create_future()
     closing = asyncio.Event()
     remote = remotes[0]
-    remote._remote_message_protocol = Mock(on_con_lost=completed, transport=Mock())
+    remote.closed = completed
+    remote.transport = Mock()
+    remote.wait_closed = lambda: TvVoiceClient.wait_closed(remote)
 
     def disconnect():
-        remote._remote_message_protocol = None
         closing.set()
+        return True
 
     remote.disconnect.side_effect = disconnect
     await client.send_json_auto_id(

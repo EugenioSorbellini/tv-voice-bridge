@@ -21,6 +21,15 @@ from google.protobuf.internal.decoder import _DecodeVarint
 from tools import protocol_lab as lab
 
 
+def bridge(remote):
+    """Patch the production client the current case loads."""
+    return patch.object(
+        lab,
+        "bridge_client",
+        return_value=types.SimpleNamespace(TvVoiceClient=Mock(return_value=remote)),
+    )
+
+
 class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
     def test_server_close_observation_omits_session_and_audio(self):
         protocol = types.SimpleNamespace(_handle_message=Mock())
@@ -70,8 +79,23 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 lab.read_audio(path, 16000)
 
+    def test_client_observation_counts_fields_without_payloads(self):
+        events, apps = [], []
+        remote = types.SimpleNamespace(voice_closed=True)
+        lab.observe_client(remote, events, time.monotonic(), apps.append)
+        remote.on_message(frozenset({30}))
+        remote.on_message(frozenset({31}))
+        remote.on_message(frozenset({20}))
+        self.assertEqual(
+            [event["event"] for event in events], ["remote_voice_begin", "server_field_31"]
+        )
+        self.assertTrue(events[-1]["session_matches"])
+        self.assertEqual(apps, [""])
+
     async def test_case_packets_preserve_selected_format(self):
         for case in lab.CASES.values():
+            if case.name == "current":
+                continue  # Production client; tests/test_tv_voice_protocol.py covers its wire.
             with self.subTest(case=case.name):
                 loop = asyncio.get_running_loop()
                 frames = []
@@ -122,8 +146,8 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
                     protocol.close()
 
     async def test_failure_cleanup_and_metadata_privacy(self):
-        for phase in ("connect", "audio"):
-            with self.subTest(phase=phase):
+        for name, phase in [(n, p) for n in ("current", "upstream") for p in ("connect", "audio")]:
+            with self.subTest(case=name, phase=phase):
                 args = types.SimpleNamespace(
                     host="PRIVATE_HOST",
                     cert=Path("PRIVATE_CERT"),
@@ -142,11 +166,12 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
                 )
                 disabled = logging.getLogger("androidtvremote2").disabled
                 with (
+                    bridge(remote),
                     patch("androidtvremote2.AndroidTVRemote", return_value=remote),
                     patch.object(lab, "install_case"),
                     patch.object(lab, "observe_messages"),
                 ):
-                    report = await lab.run_case(args, lab.CASES["current"], bytes(8192))
+                    report = await lab.run_case(args, lab.CASES[name], bytes(8192))
                 remote.disconnect.assert_called_once()
                 if phase == "audio":
                     stream.end.assert_called_once()
@@ -168,7 +193,7 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
         remote = Mock(async_connect=AsyncMock(side_effect=RuntimeError("PRIVATE_ERROR")))
         disabled = logging.getLogger("androidtvremote2").disabled
         with patch("androidtvremote2.AndroidTVRemote", return_value=remote):
-            report = await lab.run_case(args, lab.CASES["current"], bytes(8192))
+            report = await lab.run_case(args, lab.CASES["upstream"], bytes(8192))
         callback = remote.add_current_app_updated_callback.call_args.args[0]
         remote.remove_current_app_updated_callback.assert_called_once_with(callback)
         remote.disconnect.assert_called_once()
@@ -192,7 +217,7 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
             device_info={"manufacturer": "Synthetic"},
             is_voice_enabled=False,
         )
-        remote._remote_message_protocol.transport.get_write_buffer_size.return_value = 0
+        remote.transport.get_write_buffer_size.return_value = 0
         remote.async_connect = AsyncMock()
 
         async def poll(seconds):
@@ -200,10 +225,7 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
                 remote.is_voice_enabled = True
 
         with (
-            patch("androidtvremote2.AndroidTVRemote", return_value=remote),
-            patch.object(lab, "install_case"),
-            patch.object(lab, "observe_messages"),
-            patch.object(lab, "observe_payload_shape"),
+            bridge(remote),
             patch.object(lab.asyncio, "sleep", side_effect=poll) as sleep,
         ):
             report = await lab.run_case(args, lab.CASES["current"], bytes(8192))
@@ -230,25 +252,21 @@ class ProtocolLabTests(unittest.IsolatedAsyncioTestCase):
             start_voice=AsyncMock(return_value=stream),
             device_info={"manufacturer": "Synthetic"},
         )
-        remote._remote_message_protocol.transport.get_write_buffer_size.return_value = 0
+        remote.transport.get_write_buffer_size.return_value = 0
 
         async def connect():
-            callback = remote.add_current_app_updated_callback.call_args.args[0]
-            callback("PRIVATE_APP")
+            remote.on_message(frozenset({20}))  # remote_ime_key_inject: the app report.
 
         remote.async_connect = AsyncMock(side_effect=connect)
         with (
-            patch("androidtvremote2.AndroidTVRemote", return_value=remote),
-            patch.object(lab, "install_case"),
-            patch.object(lab, "observe_messages"),
-            patch.object(lab, "observe_payload_shape"),
+            bridge(remote),
             patch.object(lab.asyncio, "sleep", new_callable=AsyncMock) as sleep,
         ):
             report = await lab.run_case(args, lab.CASES["current"], bytes(8192))
         self.assertEqual(report["outcome"], "transport_completed")
         self.assertEqual(report["events"][0]["event"], "initial_app_report")
         self.assertTrue(all(call.args == (0,) for call in sleep.await_args_list))
-        remote.remove_current_app_updated_callback.assert_called_once()
+        remote.add_current_app_updated_callback.assert_not_called()
         remote.disconnect.assert_called_once()
         self.assertNotIn("PRIVATE", json.dumps(report))
 

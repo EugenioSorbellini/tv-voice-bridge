@@ -6,8 +6,9 @@ from array import array
 import asyncio
 from collections.abc import Callable
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from .client import TvVoiceClient, VoiceStream
 from .const import (
     CHUNK_BYTES,
     CONNECT_TIMEOUT,
@@ -20,11 +21,6 @@ from .const import (
     VOICE_START_TIMEOUT,
 )
 from .errors import VoiceError
-from .protocol import ConnectionClose, configure_voice_protocol, disconnect
-
-if TYPE_CHECKING:
-    from androidtvremote2 import AndroidTVRemote
-    from androidtvremote2.voice_stream import VoiceStream
 
 
 class VoiceSession:
@@ -32,12 +28,13 @@ class VoiceSession:
 
     def __init__(
         self,
-        remote: AndroidTVRemote,
+        remote: TvVoiceClient,
         on_close: Callable[[], None],
         loop: asyncio.AbstractEventLoop | None = None,
         on_disconnect: Callable[[], None] = lambda: None,
     ) -> None:
         self.remote = remote
+        remote.on_voice_close = self._tv_closed
         self.on_close = on_close
         self.on_disconnect = on_disconnect
         self.loop = loop or asyncio.get_running_loop()
@@ -81,13 +78,13 @@ class VoiceSession:
                 await self.remote.async_connect()
             if self.closed:
                 raise VoiceError("cancelled")
-            configure_voice_protocol(self.remote, self._tv_closed)
             await asyncio.sleep(VOICE_READY_DELAY)
             if self.closed:
                 raise VoiceError("cancelled")
             if not self.remote.is_voice_enabled:
                 raise VoiceError("voice_unsupported")
-            stream = await self.remote.start_voice(timeout=VOICE_START_TIMEOUT)
+            async with asyncio.timeout(VOICE_START_TIMEOUT):
+                stream = await self.remote.start_voice()
             if self.closed:
                 stream.end()
                 raise VoiceError("cancelled")
@@ -175,16 +172,15 @@ class VoiceSession:
 
     def _disconnect(self) -> None:
         # Always repeat transport cleanup: startup may complete after cancellation.
-        closing = disconnect(self.remote)
-        if closing is not None and closing.completed not in self._closing_connections:
-            self._closing_connections.add(closing.completed)
-            task = self.loop.create_task(self._wait_for_disconnect(closing))
+        if self.remote.disconnect() and self.remote.closed not in self._closing_connections:
+            self._closing_connections.add(self.remote.closed)
+            task = self.loop.create_task(self._wait_for_disconnect())
             self._close_tasks.add(task)
             task.add_done_callback(self._close_done)
         self._notify_disconnected()
 
-    async def _wait_for_disconnect(self, closing: ConnectionClose) -> None:
-        if not await closing.wait() and not self.error:
+    async def _wait_for_disconnect(self) -> None:
+        if not await self.remote.wait_closed() and not self.error:
             self.delivery_failed = True
             self.error = "delivery_failed"
 

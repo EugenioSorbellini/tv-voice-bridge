@@ -2,6 +2,9 @@
 homeassistant==2026.10.2
 home-assistant-frontend==20260930.4
 pytest-homeassistant-custom-component==0.13.373
+# Not used by the bridge at runtime. HA's androidtv_remote integration, a manifest
+# dependency loaded by the tests, imports it; tests also use its schema as an
+# independent check of the client's hand-written wire format.
 androidtvremote2==0.3.2
 ruff==0.17.1
 mypy==2.4.0

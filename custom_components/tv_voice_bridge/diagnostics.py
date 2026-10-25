@@ -7,7 +7,6 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, VERSION
 from .manager import BridgeManager
-from .protocol import LIBRARY_VERSION
 
 
 async def async_get_config_entry_diagnostics(
@@ -16,7 +15,6 @@ async def async_get_config_entry_diagnostics(
     manager: BridgeManager = hass.data[DOMAIN]
     return {
         "integration_version": VERSION,
-        "library_version": LIBRARY_VERSION,
         "configured": entry.entry_id in manager.targets,
         "active_sessions": sum(
             record.entry_id == entry.entry_id for record in manager.records.values()

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Replace the androidtvremote2 voice adapter with the bridge's own voice-only client (`client.py`). It opens the TLS connection with the core Android TV Remote pairing, answers the handshake and pings as androidtvremote2 0.3.2 does, and sends the validated voice messages. `voice.proto` now defines every message the client exchanges, one schema per direction. Nothing replaces or reads library internals any more, so a Home Assistant release that changes androidtvremote2 no longer disables voice, and the `unsupported_version` gate and `protocol.py` are gone. Pairing still comes from the core integration.
+- Diagnostics no longer report `library_version`.
+- Protocol lab: the `current` case runs the production client and no longer needs androidtvremote2; the comparison cases still do.
+
+Validated with 66 Python tests (91% statement coverage including the generated module), Ruff and mypy, checked against the upstream 0.3.2 schema. Live on 2026-10-25 on the tested TCL, now running Remote Service 7.00.999235495, through Home Assistant 2026.10.3: the client completed TLS 1.3 and the handshake with the existing core pairing, and a 2.7 s Italian TTS phrase sent through the WebSocket start/frames/stop path was forwarded in full (86,272 bytes, no delivery failure) and recognized on screen (the weather query was answered). Start took 1.3 s including the 1 s readiness delay. Other devices remain unverified.
+
 ## 1.2.2 — 2026-10-24
 
 - Keep loading if Home Assistant changes Lovelace internals. The migration of pre-1.0 dashboard resources is now optional: it is skipped, not fatal, when the resource collection is missing or changed, and `lovelace` is no longer a hard dependency.

@@ -239,7 +239,6 @@ async def test_diagnostics_omit_device_identity_and_audio(hass, paired_tv):
     result = await async_get_config_entry_diagnostics(hass, entry)
     assert result == {
         "integration_version": VERSION,
-        "library_version": "0.3.2",
         "configured": True,
         "active_sessions": 0,
         "processing_sessions": 0,

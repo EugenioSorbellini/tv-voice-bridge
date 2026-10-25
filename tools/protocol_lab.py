@@ -2,6 +2,8 @@
 
 Run directly from the checkout. No Home Assistant imports, pairing changes,
 microphone capture, automatic device discovery, or release operations.
+The `current` case runs the production client. The other cases reproduce the
+historical comparisons and need androidtvremote2 0.3.2.
 """
 
 from __future__ import annotations
@@ -59,7 +61,7 @@ def varint(value: int) -> bytes:
 
 
 class WireMessage:
-    """Legacy comparison message; production uses generated protobuf schemas."""
+    """Legacy comparison message for the androidtvremote2-based cases."""
 
     def __init__(self, data: bytes) -> None:
         self.data = data
@@ -89,8 +91,8 @@ def read_audio(path: Path, rate: int) -> bytes:
     return audio
 
 
-def bridge_protocol() -> Any:
-    """Load the actual production adapter without executing HA's __init__.py."""
+def bridge_client() -> Any:
+    """Load the actual production client without executing HA's __init__.py."""
     package_name = "_tv_voice_lab_bridge"
     if package_name not in sys.modules:
         package = types.ModuleType(package_name)
@@ -98,22 +100,18 @@ def bridge_protocol() -> Any:
             str(Path(__file__).resolve().parents[1] / "custom_components/tv_voice_bridge")
         ]
         sys.modules[package_name] = package
-    return importlib.import_module(package_name + ".protocol")
+    return importlib.import_module(package_name + ".client")
 
 
 def install_case(remote: Any, case: Case) -> None:
-    """Use production unchanged for current, upstream unchanged for upstream.
+    """Leave upstream unchanged for upstream; current never uses androidtvremote2.
 
     Experimental variants alter only the selected outgoing voice fields.
     These private API accesses belong to this version-gated diagnostic tool.
     """
     if version("androidtvremote2") != LIBRARY_VERSION:
         raise ValueError("Protocol lab requires androidtvremote2 0.3.2")
-    if case.name == "upstream":
-        return
-    adapter = bridge_protocol()
-    if case.name == "current":
-        adapter.configure_voice_protocol(remote)
+    if case.name in ("upstream", "current"):
         return
     protocol = remote._remote_message_protocol
     original_send = protocol._send_message
@@ -177,6 +175,37 @@ def observe_messages(remote: Any, events: list[dict[str, Any]], started: float) 
     protocol._handle_message = handle
 
 
+CLIENT_EVENTS = {3: "remote_error", 30: "remote_voice_begin", 32: "remote_voice_end"}
+
+
+def observe_client(remote: Any, events: list[dict[str, Any]], started: float, on_app: Any) -> None:
+    """Production-client counterpart of observe_messages: field numbers only."""
+
+    def observe(fields: frozenset[int]) -> None:
+        seconds = round(time.monotonic() - started, 3)
+        for number, name in CLIENT_EVENTS.items():
+            if number in fields:
+                events.append({"event": name, "seconds": seconds})
+        if 31 in fields:
+            # Handled before observation, so voice_closed means the id matched.
+            events.append(
+                {
+                    "event": "server_field_31",
+                    "seconds": seconds,
+                    "session_matches": bool(remote.voice_closed),
+                }
+            )
+        if 20 in fields:
+            on_app("")
+
+    remote.on_message = observe
+
+
+def write_buffer(remote: Any, current: bool) -> int:
+    transport = remote.transport if current else remote._remote_message_protocol.transport
+    return int(transport.get_write_buffer_size())
+
+
 def observe_payload_shape(remote: Any, report: dict[str, Any]) -> None:
     """Record wrapper size only, without retaining session IDs or audio bytes."""
     protocol = remote._remote_message_protocol
@@ -196,14 +225,13 @@ def observe_payload_shape(remote: Any, report: dict[str, Any]) -> None:
 
 async def run_case(args: argparse.Namespace, case: Case, audio: bytes) -> dict[str, Any]:
     """Open one dedicated connection, send one fixture, and always disconnect."""
-    from androidtvremote2 import AndroidTVRemote
-
+    current = case.name == "current"
     started = time.monotonic()
     events: list[dict[str, Any]] = []
     report: dict[str, Any] = {
         "started_utc": datetime.now(UTC).isoformat(),
         "case": asdict(case),
-        "library_version": version("androidtvremote2"),
+        "client": "tv_voice_bridge" if current else "androidtvremote2 " + LIBRARY_VERSION,
         "ready_delay": args.ready_delay,
         "startup": getattr(args, "startup", "delay"),
         "processing_grace": args.processing_grace,
@@ -215,14 +243,21 @@ async def run_case(args: argparse.Namespace, case: Case, audio: bytes) -> dict[s
         "recognition": "not_observed",
         "events": events,
     }
-    remote = AndroidTVRemote(
-        "TV Voice Protocol Lab",
-        str(args.cert),
-        str(args.key),
-        args.host,
-        enable_ime=True,
-        enable_voice=True,
-    )
+    if current:
+        remote = bridge_client().TvVoiceClient(
+            args.host, str(args.cert), str(args.key), asyncio.get_running_loop()
+        )
+    else:
+        from androidtvremote2 import AndroidTVRemote
+
+        remote = AndroidTVRemote(
+            "TV Voice Protocol Lab",
+            str(args.cert),
+            str(args.key),
+            args.host,
+            enable_ime=True,
+            enable_voice=True,
+        )
     stream = None
     app_ready = asyncio.Event()
 
@@ -234,7 +269,10 @@ async def run_case(args: argparse.Namespace, case: Case, audio: bytes) -> dict[s
             app_ready.set()
 
     wait_for_app = getattr(args, "startup", "delay") == "ime"
-    if wait_for_app:
+    if current:
+        # Installed before connecting: the TV may report its app during the handshake.
+        observe_client(remote, events, started, on_app)
+    elif wait_for_app:
         remote.add_current_app_updated_callback(on_app)
     # Upstream remote_error logging can include the TV's echoed audio message.
     logger = logging.getLogger("androidtvremote2")
@@ -247,9 +285,10 @@ async def run_case(args: argparse.Namespace, case: Case, audio: bytes) -> dict[s
             report["device_info"] = remote.device_info
             report["connect_seconds"] = round(time.monotonic() - started, 3)
             report["voice_enabled_at_connect"] = bool(remote.is_voice_enabled)
-            install_case(remote, case)
-            observe_payload_shape(remote, report)
-            observe_messages(remote, events, started)
+            if not current:
+                install_case(remote, case)
+                observe_payload_shape(remote, report)
+                observe_messages(remote, events, started)
             if wait_for_app:
                 async with asyncio.timeout(5):
                     await app_ready.wait()
@@ -263,7 +302,11 @@ async def run_case(args: argparse.Namespace, case: Case, audio: bytes) -> dict[s
             if not remote.is_voice_enabled:
                 raise RuntimeError("voice_unsupported")
             report["voice_request_seconds"] = round(time.monotonic() - started, 3)
-            stream = await remote.start_voice(timeout=5)
+            if current:
+                async with asyncio.timeout(5):
+                    stream = await remote.start_voice()
+            else:
+                stream = await remote.start_voice(timeout=5)
             report["voice_ready_seconds"] = round(time.monotonic() - started, 3)
             await asyncio.sleep(getattr(args, "audio_delay", 0))
             report["first_audio_seconds"] = round(time.monotonic() - started, 3)
@@ -283,13 +326,9 @@ async def run_case(args: argparse.Namespace, case: Case, audio: bytes) -> dict[s
                 )
             stream.end()
             stream = None
-            report["buffered_bytes_at_end"] = (
-                remote._remote_message_protocol.transport.get_write_buffer_size()
-            )
+            report["buffered_bytes_at_end"] = write_buffer(remote, current)
             await asyncio.sleep(args.processing_grace)
-            report["buffered_bytes_before_disconnect"] = (
-                remote._remote_message_protocol.transport.get_write_buffer_size()
-            )
+            report["buffered_bytes_before_disconnect"] = write_buffer(remote, current)
             report["outcome"] = "transport_completed"
     except Exception as error:
         # Exception strings can contain hostnames or protocol payloads.
@@ -306,7 +345,7 @@ async def run_case(args: argparse.Namespace, case: Case, audio: bytes) -> dict[s
                 remote.disconnect()
             finally:
                 try:
-                    if wait_for_app:
+                    if wait_for_app and not current:
                         remote.remove_current_app_updated_callback(on_app)
                 finally:
                     logger.disabled = was_disabled
@@ -361,8 +400,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not all((args.host, args.cert, args.key, audio)):
         parser.error("Live execution requires --host, --cert, --key and a valid --wav")
-    if version("androidtvremote2") != LIBRARY_VERSION:
-        parser.error("Install androidtvremote2==0.3.2 in an isolated environment")
+    if case.name != "current" and version("androidtvremote2") != LIBRARY_VERSION:
+        parser.error("Comparison cases need androidtvremote2==0.3.2 in an isolated environment")
     assert audio is not None
     report = asyncio.run(run_case(args, case, audio))
     print(json.dumps(report, ensure_ascii=False))

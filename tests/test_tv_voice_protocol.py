@@ -1,41 +1,36 @@
-"""Real upstream framing plus direction-specific voice and transport lifecycles."""
+"""Client wire format, checked against upstream's schema, and transport lifecycles."""
 
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-from androidtvremote2 import AndroidTVRemote
-from androidtvremote2.remote import RemoteProtocol
-from androidtvremote2.remotemessage_pb2 import RemoteMessage
-from androidtvremote2.voice_stream import VoiceStream
+from androidtvremote2.remote import Feature
+from androidtvremote2.remotemessage_pb2 import RemoteDirection, RemoteKeyCode, RemoteMessage
 from google.protobuf.internal.decoder import _DecodeVarint
+from google.protobuf.internal.encoder import _VarintBytes
 import pytest
 
-from custom_components.tv_voice_bridge import protocol
+from custom_components.tv_voice_bridge import client as client_module
+from custom_components.tv_voice_bridge.client import TvVoiceClient, VoiceStream
 from custom_components.tv_voice_bridge.errors import VoiceError
 from custom_components.tv_voice_bridge.session import VoiceSession
-from custom_components.tv_voice_bridge.voice_pb2 import ClientVoiceMessage, ServerVoiceMessage
 
 
 @pytest.fixture
 async def wire():
     loop = asyncio.get_running_loop()
-    remote = AndroidTVRemote("test", "unused.pem", "unused.key", "tv.invalid", loop=loop)
-    proto = RemoteProtocol(
-        loop.create_future(), loop.create_future(), Mock(), Mock(), Mock(), loop, True, True
-    )
+    client = TvVoiceClient("tv.invalid", "unused.pem", "unused.key", loop)
     frames = []
     transport = Mock()
     transport.write.side_effect = frames.append
     transport.is_closing.return_value = False
     transport.close.side_effect = lambda: setattr(transport.is_closing, "return_value", True)
-    proto.transport = transport
-    remote._remote_message_protocol = proto
-    yield remote, proto, transport, frames
-    proto.close()
-    proto.connection_lost(None)
+    client.connection_made(transport)
+    yield client, transport, frames
+    client.connection_lost(None)
 
 
 def messages(frames):
+    # Independent decoder: protobuf's own varint reader, not the client's.
     wire = b"".join(frames)
     result = []
     while wire:
@@ -45,147 +40,285 @@ def messages(frames):
     return result
 
 
-def send_begin(proto, session_id=7):
-    begin = RemoteMessage()
-    begin.remote_voice_begin.session_id = session_id
-    proto._send_message(begin)
+def receive(client, message):
+    raw = message if isinstance(message, bytes) else message.SerializeToString()
+    client.data_received(client_module.encode_varint(len(raw)) + raw)
 
 
-def server_close(proto, session_id=7):
-    close = ServerVoiceMessage()
-    close.close.session_id = session_id
-    proto._handle_message(close.SerializeToString())
+def handshake(client, features=0b1101111):
+    configure = RemoteMessage()
+    configure.remote_configure.code1 = features
+    configure.remote_configure.device_info.model = "Model"
+    configure.remote_configure.device_info.vendor = "Vendor"
+    configure.remote_configure.device_info.app_version = "7.00"
+    active = RemoteMessage()
+    active.remote_set_active.active = 1
+    start = RemoteMessage()
+    start.remote_start.started = True
+    receive(client, configure)
+    receive(client, active)
+    receive(client, start)
+
+
+def server_begin(session_id=7):
+    message = RemoteMessage()
+    message.remote_voice_begin.session_id = session_id
+    message.remote_voice_begin.package_name = "com.google.android.katniss"
+    return message
+
+
+def server_close(session_id=7):
+    # TV-to-client field 31 is a session-close request. Upstream's schema
+    # calls it a payload, which is enough to encode the close for this test.
+    message = RemoteMessage()
+    message.remote_voice_payload.session_id = session_id
+    return message
+
+
+async def open_voice(client, frames, session_id=7):
+    handshake(client)
+    task = asyncio.create_task(client.start_voice())
+    await asyncio.sleep(0)
+    receive(client, server_begin(session_id))
+    stream = await task
+    frames.clear()
+    return stream
+
+
+async def test_handshake_matches_upstream_replies(wire):
+    client, _, frames = wire
+    handshake(client)
+    configure, active = (RemoteMessage.FromString(raw) for raw in messages(frames))
+    upstream = (
+        Feature.PING
+        | Feature.KEY
+        | Feature.IME
+        | Feature.VOICE
+        | Feature.POWER
+        | Feature.VOLUME
+        | Feature.APP_LINK
+    )
+    assert configure.remote_configure.code1 == upstream & 0b1101111
+    info = configure.remote_configure.device_info
+    assert (info.unknown1, info.unknown2, info.package_name, info.app_version) == (
+        1,
+        "1",
+        "atvremote",
+        "1.0.0",
+    )
+    assert active.remote_set_active.active == upstream & 0b1101111
+    assert client.is_voice_enabled
+    assert client.device_info == {"manufacturer": "Vendor", "model": "Model", "sw_version": "7.00"}
+
+
+async def test_voice_disabled_when_tv_lacks_the_feature(wire):
+    client, _, _ = wire
+    handshake(client, features=Feature.PING | Feature.KEY)
+    assert not client.is_voice_enabled
+
+
+async def test_ping_reply_and_split_frames(wire):
+    client, _, frames = wire
+    ping = RemoteMessage()
+    ping.remote_ping_request.val1 = 300
+    ping.remote_ping_request.val2 = 9
+    raw = ping.SerializeToString()
+    data = client_module.encode_varint(len(raw)) + raw
+    for byte in data:
+        client.data_received(bytes([byte]))  # Any split, including inside the length.
+    assert RemoteMessage.FromString(messages(frames)[0]).remote_ping_response.val1 == 300
 
 
 @pytest.mark.parametrize("session_id", [0, 7, 128, 2147483647, -1, -2147483648])
-async def test_generated_client_schema_preserves_audio_and_signed_session(wire, session_id):
-    remote, proto, _, frames = wire
-    protocol.configure_voice_protocol(remote)
-    send_begin(proto, session_id)
-    begin = ClientVoiceMessage.FromString(messages(frames)[0]).begin
-    assert begin.session_id == session_id
-    assert (begin.sample_rate, begin.channel_config, begin.audio_format) == (16000, 16, 2)
+async def test_voice_messages_preserve_audio_and_signed_session(wire, session_id):
+    client, _, frames = wire
+    handshake(client)
+    frames.clear()
+    task = asyncio.create_task(client.start_voice())
+    await asyncio.sleep(0)
+    key = RemoteMessage.FromString(messages(frames)[0]).remote_key_inject
+    assert (key.key_code, key.direction) == (RemoteKeyCode.KEYCODE_SEARCH, RemoteDirection.SHORT)
+    frames.clear()
+    receive(client, server_begin(session_id))
+    stream = await task
+    assert stream.session_id == session_id
+    # Hand-built expected bytes: begin with 16 kHz, mono mask 16, PCM16 format 2.
+    # int32 negatives are ten-byte two's complement varints.
+    signed = _VarintBytes(session_id & (1 << 64) - 1)
+    begin = b"\x08" + signed + b"\x50\x80\x7d\x58\x10\x60\x02"
+    assert messages(frames) == [b"\xf2\x01" + client_module.encode_varint(len(begin)) + begin]
     frames.clear()
     audio = b"\x00\x80\xff\x7f" * 2048
-    stream = VoiceStream(proto, session_id)
     assert stream.send_chunk(audio)
-    # Independent wire assertion: field 31's contents are the PCM itself.
+    # Field 31's contents are the PCM itself, not upstream's nested message.
     assert messages(frames) == [b"\xfa\x01\x80\x40" + audio]
     frames.clear()
     stream.end()
-    assert ClientVoiceMessage.FromString(messages(frames)[0]).end.session_id == session_id
+    assert RemoteMessage.FromString(messages(frames)[0]).remote_voice_end.session_id == (session_id)
 
 
-async def test_server_close_is_matched_once_and_stops_audio_without_echo(wire):
-    remote, proto, _, frames = wire
+async def test_server_close_is_matched_once_and_stops_audio(wire):
+    client, _, frames = wire
     closed = Mock()
-    protocol.configure_voice_protocol(remote, closed)
-    send_begin(proto)
-    frames.clear()
-    server_close(proto, 8)
-    missing = ServerVoiceMessage()
-    missing.close.SetInParent()
-    proto._handle_message(missing.SerializeToString())
+    client.on_voice_close = closed
+    stream = await open_voice(client, frames)
+    receive(client, server_close(8))
+    missing = RemoteMessage()
+    missing.remote_voice_payload.SetInParent()
+    receive(client, missing)
     closed.assert_not_called()
-    server_close(proto)
-    server_close(proto)
+    receive(client, server_close())
+    receive(client, server_close())
     closed.assert_called_once_with()
-    stream = VoiceStream(proto, 7)
-    with pytest.raises(VoiceError, match="session_ended"):
-        stream.send_chunk(bytes(8192))
+    assert not stream.send_chunk(bytes(8192))
     stream.end()
     assert not frames  # No tail, duplicate end, or payload after TV close.
 
 
-async def test_handshake_ping_and_voice_begin_keep_upstream_behavior(wire):
-    remote, proto, _, frames = wire
-    protocol.configure_voice_protocol(remote)
-    task = asyncio.create_task(remote.start_voice(timeout=1))
-    await asyncio.sleep(0)
-    server = ServerVoiceMessage()
-    server.begin.session_id = 7
-    server.begin.package_name.extend(["first", "second"])
-    proto._handle_message(server.SerializeToString())
-    stream = await task
-    assert stream.session_id == 7
-    assert ClientVoiceMessage.FromString(messages(frames)[-1]).begin.sample_rate == 16000
-    ping = RemoteMessage()
-    ping.remote_ping_request.val1 = 19
-    proto._handle_message(ping.SerializeToString())
-    assert RemoteMessage.FromString(messages(frames)[-1]).remote_ping_response.val1 == 19
-    stream.end()
-
-
-async def test_close_between_server_offer_and_client_begin_cannot_reopen_voice(wire):
-    remote, proto, _, frames = wire
+async def test_close_in_same_read_as_offer_cannot_open_voice(wire):
+    client, _, frames = wire
     closed = Mock()
-    protocol.configure_voice_protocol(remote, closed)
-    begin = ServerVoiceMessage()
-    begin.begin.session_id = 7
-    proto._handle_message(begin.SerializeToString())
-    server_close(proto)
-    closed.assert_called_once_with()
+    client.on_voice_close = closed
+    handshake(client)
+    task = asyncio.create_task(client.start_voice())
+    await asyncio.sleep(0)
+    frames.clear()
+    offer, close = server_begin().SerializeToString(), server_close().SerializeToString()
+    encode = client_module.encode_varint
+    client.data_received(encode(len(offer)) + offer + encode(len(close)) + close)
     with pytest.raises(VoiceError, match="session_ended"):
-        send_begin(proto)
+        await task
+    closed.assert_called_once_with()
     assert not frames
 
 
-@pytest.mark.parametrize("raw", [b"\xfa\x01\x02\x08", b"\x0a\x01\xff"])
-async def test_malformed_message_is_handled_without_exposing_payload(wire, raw):
-    remote, proto, _, _ = wire
-    closed = Mock()
-    protocol.configure_voice_protocol(remote, closed)
-    proto._handle_message(raw)
-    closed.assert_not_called()
+async def test_unsolicited_offer_is_ignored(wire):
+    client, _, frames = wire
+    handshake(client)
+    frames.clear()
+    receive(client, server_begin())
+    assert client.session_id is None
+    assert not frames
 
 
-async def test_echoed_audio_and_close_ids_never_reach_debug_logs(wire, caplog):
-    remote, proto, _, _ = wire
+async def test_start_voice_times_out_and_fails_on_lost_connection(wire):
+    client, _, _ = wire
+    handshake(client)
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.01):
+            await client.start_voice()
+    task = asyncio.create_task(client.start_voice())
+    await asyncio.sleep(0)
+    client.connection_lost(ConnectionResetError())
+    with pytest.raises(VoiceError, match="unavailable"):
+        await task
+
+
+@pytest.mark.parametrize("raw", [b"\xfa\x01\x02\x08", b"\x0a\x01\xff", b"\x0f"])
+async def test_malformed_message_is_ignored_without_exposing_payload(wire, raw, caplog):
+    client, transport, _ = wire
     caplog.set_level("DEBUG")
-    protocol.configure_voice_protocol(remote)
-    send_begin(proto, 999271)
-    stream = VoiceStream(proto, 999271)
+    closed = Mock()
+    client.on_voice_close = closed
+    receive(client, raw)
+    closed.assert_not_called()
+    transport.abort.assert_not_called()
+    assert raw.hex() not in caplog.text
+
+
+async def test_corrupt_length_aborts_the_connection(wire):
+    client, transport, _ = wire
+    client.data_received(b"\xff" * 11)
+    transport.abort.assert_called_once()
+
+
+async def test_echoed_audio_and_session_ids_never_reach_logs(wire, caplog):
+    client, _, frames = wire
+    caplog.set_level("DEBUG")
+    stream = await open_voice(client, frames, 999271)
     stream.send_chunk(b"PRIVATE_AUDIO" * 1024)
     error = RemoteMessage()
     error.remote_error.message.remote_voice_payload.samples = b"PRIVATE_AUDIO"
-    proto._handle_message(error.SerializeToString())
-    server_close(proto, 999271)
+    receive(client, error)
+    receive(client, server_close(999271))
     assert "TV reported a remote protocol error" in caplog.text
     assert "PRIVATE_AUDIO" not in caplog.text
     assert "999271" not in caplog.text
 
 
+async def test_idle_connection_is_closed(wire):
+    client, transport, _ = wire
+    with patch.object(client_module, "IDLE_TIMEOUT", 0.01):
+        client.data_received(b"")  # Rearm with the patched timeout.
+        await asyncio.sleep(0.05)
+    transport.close.assert_called_once()
+
+
+async def test_connect_waits_for_remote_start_and_reports_early_close():
+    loop = asyncio.get_running_loop()
+    client = TvVoiceClient("tv.invalid", "cert", "key", loop)
+    transport = Mock(is_closing=Mock(return_value=False))
+
+    async def create_connection(factory, host, port, ssl):
+        assert (host, port, ssl) == ("tv.invalid", 6466, "context")
+        factory().connection_made(transport)
+        return transport, client
+
+    with (
+        patch.object(client_module, "load_ssl_context", return_value="context") as load,
+        patch.object(loop, "create_connection", side_effect=create_connection),
+    ):
+        task = asyncio.create_task(client.async_connect())
+        await asyncio.sleep(0.01)
+        assert not task.done()
+        handshake(client)
+        await task
+        load.assert_called_once_with("cert", "key")
+        client.connection_lost(None)
+        failed = TvVoiceClient("tv.invalid", "cert", "key", loop)
+        task = asyncio.create_task(failed.async_connect())
+        await asyncio.sleep(0.01)
+        failed.connection_lost(ConnectionResetError())
+        with pytest.raises(VoiceError, match="unavailable"):
+            await task
+
+
 async def start_session(wire):
-    remote, proto, _, _ = wire
-    remote.async_connect = AsyncMock()
+    client, _, frames = wire
+    handshake(client)
+    client.async_connect = AsyncMock()
+    real_start = client.start_voice
 
-    async def start_voice(**kwargs):
-        send_begin(proto)
-        return VoiceStream(proto, 7)
+    async def start_voice():
+        task = asyncio.create_task(real_start())
+        await asyncio.sleep(0)
+        receive(client, server_begin())
+        return await task
 
-    remote.start_voice = AsyncMock(side_effect=start_voice)
+    client.start_voice = start_voice
     released, disconnected = Mock(), Mock()
-    session = VoiceSession(remote, released, on_disconnect=disconnected)
+    session = VoiceSession(client, released, on_disconnect=disconnected)
     with patch("custom_components.tv_voice_bridge.session.VOICE_READY_DELAY", 0):
         await session.start()
+    frames.clear()
     return session, released, disconnected
 
 
 async def test_submission_waits_for_real_close_and_preserves_queued_tail(wire):
-    _, proto, transport, frames = wire
+    client, transport, frames = wire
     session, released, disconnected = await start_session(wire)
     session.feed(b"\x01\x02" * 50)
     session.close(flush=True)
     transport.close.assert_called_once()
     released.assert_called_once()
     disconnected.assert_not_called()
-    sent = [ClientVoiceMessage.FromString(raw) for raw in messages(frames)]
-    assert sent[-2].audio[:100] == b"\x01\x02" * 50
-    assert sent[-1].HasField("end")
+    sent = [RemoteMessage.FromString(raw) for raw in messages(frames)[1:]]
+    assert messages(frames)[0] == b"\xfa\x01\x64" + b"\x01\x02" * 50
+    assert sent[-1].HasField("remote_voice_end")
     waiter = asyncio.create_task(session.wait_closed())
     await asyncio.sleep(0)
     assert not waiter.done()
-    proto.connection_lost(None)
+    client.connection_lost(None)
     result = await waiter
     assert result["forwarded_bytes"] == 100
     assert not result["delivery_failed"]
@@ -195,26 +328,25 @@ async def test_submission_waits_for_real_close_and_preserves_queued_tail(wire):
 
 @pytest.mark.parametrize("failure", ["timeout", "network"])
 async def test_failed_graceful_close_is_bounded_and_reported(wire, failure):
-    _, proto, transport, _ = wire
+    client, transport, _ = wire
     session, _, disconnected = await start_session(wire)
-    with patch.object(protocol, "CLOSE_TIMEOUT", 0.01):
+    with patch.object(client_module, "CLOSE_TIMEOUT", 0.01):
         session.close(flush=True)
         if failure == "network":
-            proto.connection_lost(ConnectionResetError())
+            client.connection_lost(ConnectionResetError())
         result = await session.wait_closed()
     assert result["delivery_failed"]
     assert result["error"] == "delivery_failed"
-    assert not proto.on_con_lost.cancelled()
+    assert not client.closed.cancelled()
     assert transport.abort.call_count == (failure == "timeout")
     disconnected.assert_called_once()
 
 
 async def test_tv_close_drops_buffer_releases_session_and_unload_waits(wire):
-    _, proto, transport, frames = wire
+    client, transport, frames = wire
     session, released, disconnected = await start_session(wire)
     session.feed(bytes(100))
-    frames.clear()
-    server_close(proto)
+    receive(client, server_close())
     assert session.closed and session.error == "session_ended"
     assert not session.buffer and not frames
     released.assert_called_once()
@@ -222,14 +354,14 @@ async def test_tv_close_drops_buffer_releases_session_and_unload_waits(wire):
     unload = asyncio.create_task(session.shutdown())
     await asyncio.sleep(0)
     assert not unload.done()
-    proto.connection_lost(None)
+    client.connection_lost(None)
     await unload
     disconnected.assert_called_once()
     transport.abort.assert_not_called()
 
 
 async def test_cancelled_waiter_does_not_cancel_owned_shutdown(wire):
-    _, proto, _, _ = wire
+    client, _, _ = wire
     session, _, disconnected = await start_session(wire)
     session.close()
     waiter = asyncio.create_task(session.wait_closed())
@@ -237,7 +369,16 @@ async def test_cancelled_waiter_does_not_cancel_owned_shutdown(wire):
     waiter.cancel()
     with pytest.raises(asyncio.CancelledError):
         await waiter
-    assert not proto.on_con_lost.cancelled()
-    proto.connection_lost(None)
+    assert not client.closed.cancelled()
+    client.connection_lost(None)
     await session.shutdown()
     disconnected.assert_called_once()
+
+
+def test_stream_end_is_sent_once():
+    client = Mock(voice_closed=False)
+    stream = VoiceStream(client, 7)
+    stream.end()
+    stream.end()
+    client.send.assert_called_once()
+    assert not stream.send_chunk(bytes(2))

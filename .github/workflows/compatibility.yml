@@ -27,11 +27,7 @@ jobs:
         run: |
           python - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           from importlib.metadata import version
-          from custom_components.tv_voice_bridge.const import SUPPORTED_LIBRARY_VERSION
-          library = version("androidtvremote2")
-          print(f"**{version('homeassistant')}**: androidtvremote2 {library}", end="")
-          print(" (supported)" if library == SUPPORTED_LIBRARY_VERSION else
-                f" — **not {SUPPORTED_LIBRARY_VERSION}: the voice adapter will refuse it**")
+          print(f"**{version('homeassistant')}**")
           EOF
       - run: pytest
 

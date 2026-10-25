@@ -21,9 +21,11 @@ After a binary failure or session timeout, the server retains only failure metad
 
 ## TV voice transport (v1.1.0)
 
-`custom_components/tv_voice_bridge/voice.proto` defines distinct client and server voice messages. Client field 30 declares session and PCM configuration, field 31 contains raw audio bytes, and field 32 ends voice. Server field 30 requests voice; server field 31 closes a session. Only a close carrying the active session identifier stops forwarding. The server close is neither a general readiness hook nor proof of recognition.
+`custom_components/tv_voice_bridge/voice.proto` defines every message `client.py` sends and receives, with distinct client and server schemas. Client field 30 declares session and PCM configuration, field 31 contains raw audio bytes, and field 32 ends voice. Server field 30 requests voice; server field 31 closes a session. Only a close carrying the active session identifier stops forwarding. The server close is neither a general readiness hook nor proof of recognition.
 
 A TV close drops all held audio and unregisters the binary upload handler. The owning client's next progress/stop request receives `session_ended`; the bundled card, which streams while recording, then stops capture with that error. This protocol version does not push a microphone-stop event.
+
+Its handshake, ping and key messages follow upstream's `remotemessage.proto` field numbers; fields the bridge does not use are left out and skipped on parse. The only hand-written encoding is the varint length before each message, because protobuf's Python package has no public length-delimited API. Tests check the client's output against the upstream 0.3.2 schema and hand-built bytes.
 
 The generated Python module and type stub are checked in. Regenerate them from the repository root in a separate compiler environment (the compiler is not a runtime dependency):
 
@@ -33,4 +35,4 @@ python3.12 -m venv /tmp/tv-voice-protoc
 /tmp/tv-voice-protoc/bin/python -m grpc_tools.protoc -I. --python_out=. --pyi_out=. custom_components/tv_voice_bridge/voice.proto
 ```
 
-Generated files are excluded from Ruff formatting to preserve reproducibility. This compiler generates descriptor-based code compatible with the existing dependency runtime range; it does not add a runtime-version gate. Home Assistant supplies the protobuf runtime. Keep the private adapter version gate until a released upstream voice API supports the verified schema and lifecycle hooks.
+Generated files are excluded from Ruff formatting to preserve reproducibility. This compiler generates descriptor-based code that works with Home Assistant's protobuf runtime (7.36 at the time of writing) without adding a runtime-version gate; newer compilers add one that could fail on a future major protobuf upgrade. Home Assistant supplies the protobuf runtime.

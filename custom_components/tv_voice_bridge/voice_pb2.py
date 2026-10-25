@@ -14,21 +14,39 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n-custom_components/tv_voice_bridge/voice.proto\x12\x0ftv_voice_bridge\"v\n\x10\x43lientVoiceBegin\x12\x12\n\nsession_id\x18\x01 \x01(\x05\x12\x19\n\x0bsample_rate\x18\n \x01(\x05:\x04\x38\x30\x30\x30\x12\x1a\n\x0e\x63hannel_config\x18\x0b \x01(\x05:\x02\x31\x36\x12\x17\n\x0c\x61udio_format\x18\x0c \x01(\x05:\x01\x32\"$\n\x0eVoiceSessionId\x12\x12\n\nsession_id\x18\x01 \x01(\x05\"<\n\x10ServerVoiceBegin\x12\x12\n\nsession_id\x18\x01 \x01(\x05\x12\x14\n\x0cpackage_name\x18\x02 \x03(\t\"\x83\x01\n\x12\x43lientVoiceMessage\x12\x30\n\x05\x62\x65gin\x18\x1e \x01(\x0b\x32!.tv_voice_bridge.ClientVoiceBegin\x12\r\n\x05\x61udio\x18\x1f \x01(\x0c\x12,\n\x03\x65nd\x18  \x01(\x0b\x32\x1f.tv_voice_bridge.VoiceSessionId\"v\n\x12ServerVoiceMessage\x12\x30\n\x05\x62\x65gin\x18\x1e \x01(\x0b\x32!.tv_voice_bridge.ServerVoiceBegin\x12.\n\x05\x63lose\x18\x1f \x01(\x0b\x32\x1f.tv_voice_bridge.VoiceSessionId')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n-custom_components/tv_voice_bridge/voice.proto\x12\x0ftv_voice_bridge\"z\n\nDeviceInfo\x12\r\n\x05model\x18\x01 \x01(\t\x12\x0e\n\x06vendor\x18\x02 \x01(\t\x12\x10\n\x08unknown1\x18\x03 \x01(\x05\x12\x10\n\x08unknown2\x18\x04 \x01(\t\x12\x14\n\x0cpackage_name\x18\x05 \x01(\t\x12\x13\n\x0b\x61pp_version\x18\x06 \x01(\t\"O\n\tConfigure\x12\x10\n\x08\x66\x65\x61tures\x18\x01 \x01(\x05\x12\x30\n\x0b\x64\x65vice_info\x18\x02 \x01(\x0b\x32\x1b.tv_voice_bridge.DeviceInfo\"\x1b\n\tSetActive\x12\x0e\n\x06\x61\x63tive\x18\x01 \x01(\x05\")\n\x0bPingRequest\x12\x0c\n\x04val1\x18\x01 \x01(\x05\x12\x0c\n\x04val2\x18\x02 \x01(\x05\"\x1c\n\x0cPingResponse\x12\x0c\n\x04val1\x18\x01 \x01(\x05\"0\n\tKeyInject\x12\x10\n\x08key_code\x18\x01 \x01(\x05\x12\x11\n\tdirection\x18\x02 \x01(\x05\"\r\n\x0bRemoteError\"\x0e\n\x0cImeKeyInject\"\x1e\n\x0bRemoteStart\x12\x0f\n\x07started\x18\x01 \x01(\x08\"v\n\x10\x43lientVoiceBegin\x12\x12\n\nsession_id\x18\x01 \x01(\x05\x12\x19\n\x0bsample_rate\x18\n \x01(\x05:\x04\x38\x30\x30\x30\x12\x1a\n\x0e\x63hannel_config\x18\x0b \x01(\x05:\x02\x31\x36\x12\x17\n\x0c\x61udio_format\x18\x0c \x01(\x05:\x01\x32\"$\n\x0eVoiceSessionId\x12\x12\n\nsession_id\x18\x01 \x01(\x05\"<\n\x10ServerVoiceBegin\x12\x12\n\nsession_id\x18\x01 \x01(\x05\x12\x14\n\x0cpackage_name\x18\x02 \x03(\t\"\xd5\x02\n\rClientMessage\x12-\n\tconfigure\x18\x01 \x01(\x0b\x32\x1a.tv_voice_bridge.Configure\x12.\n\nset_active\x18\x02 \x01(\x0b\x32\x1a.tv_voice_bridge.SetActive\x12\x34\n\rping_response\x18\t \x01(\x0b\x32\x1d.tv_voice_bridge.PingResponse\x12.\n\nkey_inject\x18\n \x01(\x0b\x32\x1a.tv_voice_bridge.KeyInject\x12\x36\n\x0bvoice_begin\x18\x1e \x01(\x0b\x32!.tv_voice_bridge.ClientVoiceBegin\x12\x13\n\x0bvoice_audio\x18\x1f \x01(\x0c\x12\x32\n\tvoice_end\x18  \x01(\x0b\x32\x1f.tv_voice_bridge.VoiceSessionId\"\xa1\x03\n\rServerMessage\x12-\n\tconfigure\x18\x01 \x01(\x0b\x32\x1a.tv_voice_bridge.Configure\x12.\n\nset_active\x18\x02 \x01(\x0b\x32\x1a.tv_voice_bridge.SetActive\x12+\n\x05\x65rror\x18\x03 \x01(\x0b\x32\x1c.tv_voice_bridge.RemoteError\x12\x32\n\x0cping_request\x18\x08 \x01(\x0b\x32\x1c.tv_voice_bridge.PingRequest\x12\x35\n\x0eime_key_inject\x18\x14 \x01(\x0b\x32\x1d.tv_voice_bridge.ImeKeyInject\x12\x36\n\x0bvoice_begin\x18\x1e \x01(\x0b\x32!.tv_voice_bridge.ServerVoiceBegin\x12\x34\n\x0bvoice_close\x18\x1f \x01(\x0b\x32\x1f.tv_voice_bridge.VoiceSessionId\x12+\n\x05start\x18( \x01(\x0b\x32\x1c.tv_voice_bridge.RemoteStart')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'custom_components.tv_voice_bridge.voice_pb2', _globals)
 if _descriptor._USE_C_DESCRIPTORS == False:
   DESCRIPTOR._options = None
-  _globals['_CLIENTVOICEBEGIN']._serialized_start=66
-  _globals['_CLIENTVOICEBEGIN']._serialized_end=184
-  _globals['_VOICESESSIONID']._serialized_start=186
-  _globals['_VOICESESSIONID']._serialized_end=222
-  _globals['_SERVERVOICEBEGIN']._serialized_start=224
-  _globals['_SERVERVOICEBEGIN']._serialized_end=284
-  _globals['_CLIENTVOICEMESSAGE']._serialized_start=287
-  _globals['_CLIENTVOICEMESSAGE']._serialized_end=418
-  _globals['_SERVERVOICEMESSAGE']._serialized_start=420
-  _globals['_SERVERVOICEMESSAGE']._serialized_end=538
+  _globals['_DEVICEINFO']._serialized_start=66
+  _globals['_DEVICEINFO']._serialized_end=188
+  _globals['_CONFIGURE']._serialized_start=190
+  _globals['_CONFIGURE']._serialized_end=269
+  _globals['_SETACTIVE']._serialized_start=271
+  _globals['_SETACTIVE']._serialized_end=298
+  _globals['_PINGREQUEST']._serialized_start=300
+  _globals['_PINGREQUEST']._serialized_end=341
+  _globals['_PINGRESPONSE']._serialized_start=343
+  _globals['_PINGRESPONSE']._serialized_end=371
+  _globals['_KEYINJECT']._serialized_start=373
+  _globals['_KEYINJECT']._serialized_end=421
+  _globals['_REMOTEERROR']._serialized_start=423
+  _globals['_REMOTEERROR']._serialized_end=436
+  _globals['_IMEKEYINJECT']._serialized_start=438
+  _globals['_IMEKEYINJECT']._serialized_end=452
+  _globals['_REMOTESTART']._serialized_start=454
+  _globals['_REMOTESTART']._serialized_end=484
+  _globals['_CLIENTVOICEBEGIN']._serialized_start=486
+  _globals['_CLIENTVOICEBEGIN']._serialized_end=604
+  _globals['_VOICESESSIONID']._serialized_start=606
+  _globals['_VOICESESSIONID']._serialized_end=642
+  _globals['_SERVERVOICEBEGIN']._serialized_start=644
+  _globals['_SERVERVOICEBEGIN']._serialized_end=704
+  _globals['_CLIENTMESSAGE']._serialized_start=707
+  _globals['_CLIENTMESSAGE']._serialized_end=1048
+  _globals['_SERVERMESSAGE']._serialized_start=1051
+  _globals['_SERVERMESSAGE']._serialized_end=1468
 # @@protoc_insertion_point(module_scope)

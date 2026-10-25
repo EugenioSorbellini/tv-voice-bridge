@@ -7,11 +7,11 @@ Hold the microphone button to record and release it to send. Recording starts wh
 ## Requirements and compatibility
 
 - Home Assistant **2026.10.2 or later**, with the **Android TV Remote** integration already configured and paired.
-- The currently supported protocol library is **androidtvremote2 0.3.2**, supplied by Home Assistant. Other versions are rejected explicitly until tested. A later HA release that changes this library may need a TV Voice Bridge update.
+- The bridge talks to the TV with its own voice-only client and reuses the Android TV Remote integration's pairing. It does not depend on the androidtvremote2 version Home Assistant ships.
 - HTTPS (or a secure localhost context), a microphone, and a browser supporting AudioWorklet. Browser microphone permission is requested only when recording is deliberately started.
 - A TV that advertises voice support. Speech recognition also depends on its installed assistant, network access, language and account settings.
 
-Real speech delivery has been verified on one TCL installation. Other Android TV models are **unverified**. The dedicated protocol adapter and its limitations are described in [Compatibility](docs/compatibility.md).
+Real speech delivery has been verified on one TCL installation. Other Android TV models are **unverified**. The voice client and its limitations are described in [Compatibility](docs/compatibility.md).
 
 ## Installation with HACS
 
@@ -79,13 +79,13 @@ npm test
 python tools/check_release.py
 ```
 
-The pinned development requirements reproduce the minimum supported Home Assistant release and its matching official test-fixture plugin. Tests use a real HA WebSocket server, schemas, config flows and entity registry while mocking TV transport. They cover cancellation races, permissions, binary payload privacy under debug logging, deadlines, the full buffer, real upstream wire framing, bundled frontend registration, translations, worklet limits and accessibility. Browser smoke tests are documented in `tests/browser/README.md`.
+The pinned development requirements reproduce the minimum supported Home Assistant release and its matching official test-fixture plugin. Tests use a real HA WebSocket server, schemas, config flows and entity registry while mocking TV transport. They cover cancellation races, permissions, binary payload privacy under debug logging, deadlines, the full buffer, the client's wire format checked against the upstream schema, bundled frontend registration, translations, worklet limits and accessibility. Browser smoke tests are documented in `tests/browser/README.md`.
 
-Release checks and hardware acceptance are summarized per version in the [Changelog](CHANGELOG.md). The [voice protocol research](docs/voice-protocol-research.md) records the live TV trials behind the wire adapter and its timing, and how to run the protocol lab.
+Release checks and hardware acceptance are summarized per version in the [Changelog](CHANGELOG.md). The [voice protocol research](docs/voice-protocol-research.md) records the live TV trials behind the voice wire format and its timing, and how to run the protocol lab.
 
 CI also runs official hassfest and HACS validation. Release automation checks the tag against all version declarations and attaches a component-only ZIP to a published GitHub release. Publishing is a separate maintainer action; local tests do not certify compatibility with untested TVs or future HA releases.
 
-A weekly **Home Assistant compatibility** workflow (also runnable manually) tests the current stable and beta HA releases ahead of users. It runs the Python tests with the androidtvremote2 and frontend versions each release pins, and records whether the voice adapter supports that library. It also starts the official HA container with this integration, onboards it, saves a dashboard containing the card, and checks on five page loads that HA renders `tv-voice-card` rather than an error card. HA betas usually appear about a week before each monthly release.
+A weekly **Home Assistant compatibility** workflow (also runnable manually) tests the current stable and beta HA releases ahead of users. It runs the Python tests with the androidtvremote2 and frontend versions each release pins; the bridge no longer uses that library at runtime, but the core integration it depends on does. It also starts the official HA container with this integration, onboards it, saves a dashboard containing the card, and checks on five page loads that HA renders `tv-voice-card` rather than an error card. HA betas usually appear about a week before each monthly release.
 
 ## Removal
 

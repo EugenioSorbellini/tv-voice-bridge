@@ -1,7 +1,52 @@
-// Voice subset verified against Google Remote Service 6.4 and 7.00.
-// Other fields remain owned by androidtvremote2. See docs/voice-protocol-research.md.
+// Remote Service messages used by client.py, one schema per direction.
+// Handshake, ping and key fields follow androidtvremote2 0.3.2's
+// remotemessage.proto. Voice fields were verified against Google Remote
+// Service 6.4 and 7.00; see docs/voice-protocol-research.md.
+// Unlisted fields are skipped on parse.
 syntax = "proto2";
 package tv_voice_bridge;
+
+message DeviceInfo {
+  optional string model = 1;
+  optional string vendor = 2;
+  optional int32 unknown1 = 3;
+  optional string unknown2 = 4;
+  optional string package_name = 5;
+  optional string app_version = 6;
+}
+
+message Configure {
+  optional int32 features = 1;
+  optional DeviceInfo device_info = 2;
+}
+
+message SetActive {
+  optional int32 active = 1;
+}
+
+message PingRequest {
+  optional int32 val1 = 1;
+  optional int32 val2 = 2;
+}
+
+message PingResponse {
+  optional int32 val1 = 1;
+}
+
+message KeyInject {
+  optional int32 key_code = 1;  // RemoteKeyCode, e.g. KEYCODE_SEARCH = 84
+  optional int32 direction = 2;  // RemoteDirection, e.g. SHORT = 3
+}
+
+// Contents are never read: errors can echo client audio.
+message RemoteError {}
+
+// Only its arrival is observed (the TV's current-app report).
+message ImeKeyInject {}
+
+message RemoteStart {
+  optional bool started = 1;
+}
 
 message ClientVoiceBegin {
   optional int32 session_id = 1;
@@ -20,13 +65,23 @@ message ServerVoiceBegin {
 }
 
 // Field 31 has different types and meanings in the two directions.
-message ClientVoiceMessage {
-  optional ClientVoiceBegin begin = 30;
-  optional bytes audio = 31;
-  optional VoiceSessionId end = 32;
+message ClientMessage {
+  optional Configure configure = 1;
+  optional SetActive set_active = 2;
+  optional PingResponse ping_response = 9;
+  optional KeyInject key_inject = 10;
+  optional ClientVoiceBegin voice_begin = 30;
+  optional bytes voice_audio = 31;
+  optional VoiceSessionId voice_end = 32;
 }
 
-message ServerVoiceMessage {
-  optional ServerVoiceBegin begin = 30;
-  optional VoiceSessionId close = 31;
+message ServerMessage {
+  optional Configure configure = 1;
+  optional SetActive set_active = 2;
+  optional RemoteError error = 3;
+  optional PingRequest ping_request = 8;
+  optional ImeKeyInject ime_key_inject = 20;
+  optional ServerVoiceBegin voice_begin = 30;
+  optional VoiceSessionId voice_close = 31;
+  optional RemoteStart start = 40;
 }

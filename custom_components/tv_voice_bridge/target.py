@@ -11,7 +11,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import STORAGE_DIR
 
 from .errors import VoiceError
-from .protocol import validate_compatibility
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -67,7 +66,6 @@ async def validate_target(
     hass: HomeAssistant, entity_id: str, source_entry_id: str | None = None
 ) -> Target:
     """Validate selection and pairing without opening the assistant on the TV."""
-    validate_compatibility()
     target = resolve_target(hass, entity_id, source_entry_id)
 
     def paired() -> bool:

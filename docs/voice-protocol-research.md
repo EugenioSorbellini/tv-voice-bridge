@@ -1,7 +1,7 @@
 # Voice protocol research
 
 These are the conclusions from live trials and receiver inspection that shaped the
-bridge's wire adapter and its timing. Everything here was observed on **one TV**.
+bridge's voice wire format and its timing. Everything here was observed on **one TV**.
 Treat counts as observations, not reliability rates. Raw per-trial metadata for the
 2026-10-22 trials remains in the repository history, for example at commit `0b43e1a`.
 
@@ -9,7 +9,7 @@ Treat counts as observations, not reliability rates. Raw per-trial metadata for 
 
 | Question | Answer on the tested TV | Production consequence |
 | --- | --- | --- |
-| What does the TV expect in client field 31? | Raw PCM bytes, not upstream's nested session/samples message | `protocol.py` sends raw audio through generated `voice.proto` schemas |
+| What does the TV expect in client field 31? | Raw PCM bytes, not upstream's nested session/samples message | `client.py` sends raw audio through generated `voice.proto` schemas |
 | Is 16 kHz required? | No. Raw 8 kHz works with the receiver defaults | 16 kHz kept for the browser pipeline; declared explicitly |
 | Can the 1 s pre-request delay be removed or shortened? | No. Zero delay intermittently gets no voice-begin; 0.25–0.5 s can lose the start of speech | 1 s fixed delay kept |
 | Is a long post-upload grace needed? | No. Graceful transport close delivers queued audio | v1.1.0 awaits close with a 5 s failure deadline |
@@ -192,10 +192,10 @@ and forwards it as in trials 35–36, measured 163 ms from release to sent, agai
   [2024](https://stackoverflow.com/questions/78438608/sending-voice-input-to-android-tv-using-android-tv-remote-control-v2))
   describe SEARCH → server begin → client begin → audio, and bytes payloads.
 
-The preferred fix is upstream: field 31 as bytes, explicit audio configuration
-for non-default rates, and a voice-close callback. Until then the adapter stays
-isolated in `protocol.py` behind the 0.3.2 version gate. Avoid model allowlists
-or format fallbacks keyed on branding.
+An upstream fix would need field 31 as bytes, explicit audio configuration for
+non-default rates, and a voice-close callback. The bridge no longer waits for it:
+its own client (`client.py`) implements these directly. Avoid model allowlists or
+format fallbacks keyed on branding.
 
 ## Open questions
 
@@ -207,10 +207,11 @@ or format fallbacks keyed on branding.
 ## Running the protocol lab
 
 `tools/protocol_lab.py` prints an offline plan unless passed `--execute`. It has no
-scanner, microphone capture, pairing flow or Home Assistant import. It needs only
-`androidtvremote2==0.3.2`. The `current` case loads the production adapter and
-`upstream` leaves the library unchanged. The other cases are isolated experimental
-encodings. Run one live trial at a time, with the TV owner's agreement, because it
+scanner, microphone capture, pairing flow or Home Assistant import. The `current`
+case runs the production client and needs no extra package. The comparison cases
+need `androidtvremote2==0.3.2`: `upstream` leaves the library unchanged and the
+others are isolated experimental encodings. Trials before the client replaced the
+adapter ran `current` through androidtvremote2 with the old adapter. Run one live trial at a time, with the TV owner's agreement, because it
 opens the assistant on screen:
 
 ```sh

@@ -1,16 +1,10 @@
-"""Session lifetimes and actual upstream wire-format compatibility."""
+"""Session lifetimes, buffering and deadlines with a stub TV client."""
 
 import asyncio
-import types
 from unittest.mock import AsyncMock, Mock, patch
 
-from androidtvremote2.remote import RemoteProtocol
-from androidtvremote2.remotemessage_pb2 import RemoteMessage
-from androidtvremote2.voice_stream import VoiceStream
-from google.protobuf.internal.decoder import _DecodeVarint
 import pytest
 
-from custom_components.tv_voice_bridge import protocol
 from custom_components.tv_voice_bridge.const import MAX_BYTES
 from custom_components.tv_voice_bridge.errors import VoiceError
 from custom_components.tv_voice_bridge.session import VoiceSession
@@ -36,14 +30,8 @@ class Remote:
 
 
 @pytest.fixture(autouse=True)
-def protocol_adapter():
-    with (
-        patch(
-            "custom_components.tv_voice_bridge.session.configure_voice_protocol",
-            new=lambda *_: None,
-        ),
-        patch("custom_components.tv_voice_bridge.session.VOICE_READY_DELAY", 0),
-    ):
+def no_ready_delay():
+    with patch("custom_components.tv_voice_bridge.session.VOICE_READY_DELAY", 0):
         yield
 
 
@@ -154,50 +142,3 @@ async def test_cancel_after_streaming_forwards_nothing_and_peak_is_exact():
     assert result["forwarded_bytes"] == 0
     assert result["received_bytes"] == 10 * 8192 + 4
     await session.shutdown()
-
-
-def test_adapter_rejects_untested_versions():
-    with (
-        patch.object(protocol, "LIBRARY_VERSION", "99.0.0"),
-        pytest.raises(VoiceError, match="unsupported_version"),
-    ):
-        protocol.validate_compatibility()
-
-
-@pytest.mark.asyncio
-async def test_real_upstream_packets_preserve_pcm_alignment():
-    loop = asyncio.get_running_loop()
-    frames = []
-    remote_protocol = RemoteProtocol(
-        loop.create_future(),
-        loop.create_future(),
-        lambda *_: None,
-        lambda *_: None,
-        lambda *_: None,
-        loop,
-        True,
-        True,
-    )
-    remote_protocol.transport = types.SimpleNamespace(
-        write=frames.append, is_closing=lambda: False, close=lambda: None
-    )
-    protocol.configure_voice_protocol(
-        types.SimpleNamespace(_remote_message_protocol=remote_protocol)
-    )
-    begin = RemoteMessage()
-    begin.remote_voice_begin.session_id = 7
-    remote_protocol._send_message(begin)
-    data = b"".join(frames)
-    size, offset = _DecodeVarint(data, 0)
-    assert len(data) - offset == size
-    assert b"\x50\x80\x7d\x58\x10\x60\x02" in data[offset:]
-    frames.clear()
-    pcm = b"\x00\x80\xff\x7f" * 2048
-    VoiceStream(remote_protocol, 7).send_chunk(pcm)
-    data = b"".join(frames)
-    _, offset = _DecodeVarint(data, 0)
-    tag, offset = _DecodeVarint(data, offset)
-    assert tag == (31 << 3) | 2
-    size, offset = _DecodeVarint(data, offset)
-    assert data[offset : offset + size] == pcm
-    remote_protocol.close()
