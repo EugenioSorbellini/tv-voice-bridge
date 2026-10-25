@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The card's version-mismatch message now asks to refresh the page instead of blaming the Home Assistant or library version; since 1.3.0 it can only mean a cached older card.
+- Docs aligned with 1.3.0: troubleshooting, dashboard-resource note, tested Remote Service version and the 1.3.0 live validation.
+
 ## 1.3.0 — 2026-10-25
 
 - Replace the androidtvremote2 voice adapter with the bridge's own voice-only client (`client.py`). It opens the TLS connection with the core Android TV Remote pairing, answers the handshake and pings as androidtvremote2 0.3.2 does, and sends the validated voice messages. `voice.proto` now defines every message the client exchanges, one schema per direction. Nothing replaces or reads library internals any more, so a Home Assistant release that changes androidtvremote2 no longer disables voice, and the `unsupported_version` gate and `protocol.py` are gone. Pairing still comes from the core integration.

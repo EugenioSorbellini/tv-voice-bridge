@@ -20,7 +20,7 @@ Real speech delivery has been verified on one TCL installation. Other Android TV
 3. Go to **Settings → Devices & services → Add integration → TV Voice Bridge** and select an already-paired Android TV remote. Add one integration entry per TV.
 4. Add **TV Voice Bridge** to a dashboard using the card picker, or use the YAML below.
 
-The integration serves and registers its bundled microphone card automatically.
+The integration serves and registers its bundled microphone card automatically. Do not add it as a dashboard resource; if a pre-1.0 setup left a `/tv_voice_bridge/frontend/.../tv-voice-card.js` resource, delete it under **Settings → Dashboards → Resources**.
 
 ```yaml
 type: custom:tv-voice-card
@@ -54,11 +54,11 @@ Diagnostics contain only version information and session counts, with no audio, 
 - **No microphone access:** open HA using HTTPS, allow microphone access in browser permissions, and press again after granting a first-time permission prompt.
 - **No audio:** check the device's microphone selection/mute settings and watch the level meter.
 - **TV unavailable / pairing required:** verify the core Android TV Remote integration can control the TV and repair its pairing there. TV Voice Bridge reuses the pairing; it does not generate or replace credentials.
-- **Unsupported version:** use a supported HA/library combination or wait for an adapter update. Do not override HA's library pin independently.
+- **Card out of date:** after an update, the dashboard can still run the previous card from the browser or app cache. Refresh the page, or clear the app's frontend cache if the message persists.
 - **Sent but no response:** delivery counters mean the transport accepted the audio, not that the assistant recognized or executed a command. Check the TV assistant itself.
 - **Wrong TV / multiple TVs:** select `entity` explicitly in the card.
 
-Include integration/library/HA/browser versions and redacted diagnostics in bug reports. Never attach recordings, pairing keys or unredacted WebSocket dumps.
+Include the integration, HA, browser and TV Remote Service versions and redacted diagnostics in bug reports. Never attach recordings, pairing keys or unredacted WebSocket dumps.
 
 ## Development
 

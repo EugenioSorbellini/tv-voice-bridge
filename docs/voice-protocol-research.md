@@ -23,9 +23,9 @@ Treat counts as observations, not reliability rates. Raw per-trial metadata for 
 | Product / build | G08_4K_GB / tcl9618-user 14 UTT2.250416.001 AU02 release-keys |
 | Android version / API / security patch | 14 / 34 / 2025-12-05 |
 | Locale | it-IT |
-| Remote Service | com.google.android.tv.remote.service 7.00.956317615 (2026-10-22), 7.00.999235495 (2026-10-24) |
+| Remote Service | com.google.android.tv.remote.service 7.00.956317615 (2026-10-22), 7.00.999235495 (2026-10-24, 2026-10-25) |
 | Assistant | com.google.android.katniss 7.55.87+964183260.01 |
-| Home Assistant / library | 2026.10.2 / androidtvremote2 0.3.2 |
+| Home Assistant / client | 2026.10.2 / androidtvremote2 0.3.2; 2026.10.3 / the bridge's own client (2026-10-25) |
 
 The handshake's `device_info.sw_version` reports the Remote Service version, not
 the TV firmware.
@@ -175,6 +175,17 @@ Phone-to-TV acceptance through the dashboard card was then confirmed by the owne
 on the same TV. The later streaming upload, which holds audio until submission
 and forwards it as in trials 35–36, measured 163 ms from release to sent, against
 910 ms for v1.1.0.
+
+## v1.3.0 client validation
+
+On 2026-10-25 the bridge's own client (`client.py`) replaced androidtvremote2 and
+was run through the real Home Assistant WebSocket path (start, binary frames,
+progress, stop) with Italian TTS fixtures and the existing core pairing:
+
+| Build | Fixture | Result |
+| --- | --- | --- |
+| First client build | "Che tempo fa a Torino?", 2.7 s | TLS 1.3 handshake in 0.08 s; 86,272 bytes forwarded; answered on screen |
+| Release build, after cleanup | "Che ore sono?", 1.2 s | 39,168 bytes forwarded, no delivery failure; start 1.35 s including the 1 s delay |
 
 ## Libraries and upstream
 

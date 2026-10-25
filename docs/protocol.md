@@ -19,7 +19,7 @@ Errors are stable codes. Frontends localize codes and never display raw exceptio
 
 After a binary failure or session timeout, the server retains only failure metadata for 30 seconds, with at most 128 terminal errors across the integration. Progress/stop requests from the owning connection receive the original error code, subject to current TV-control permission. Other connections receive `session_ended`. Retained errors do not reserve a TV or retain its session, transport or audio, and are removed on connection close, entry unload or HA shutdown.
 
-## TV voice transport (v1.1.0)
+## TV voice transport
 
 `custom_components/tv_voice_bridge/voice.proto` defines every message `client.py` sends and receives, with distinct client and server schemas. Client field 30 declares session and PCM configuration, field 31 contains raw audio bytes, and field 32 ends voice. Server field 30 requests voice; server field 31 closes a session. Only a close carrying the active session identifier stops forwarding. The server close is neither a general readiness hook nor proof of recognition.
 
